@@ -4,7 +4,7 @@ A practice and training tool for **DmC: Devil May Cry** (PC, Steam): cheats, che
 hitbox view and one-click unlocks — all in an in-game menu.
 
 ![Game version](https://img.shields.io/badge/game-v1.3%20%28current%20Steam%29-brightgreen)
-![v1.0](https://img.shields.io/badge/v1.0-in%20testing-yellow)
+![v1.0](https://img.shields.io/badge/game-v1.0%20%282013%29-brightgreen)
 ![Status](https://img.shields.io/badge/status-beta-blue)
 
 <p align="center">
@@ -24,7 +24,8 @@ hitbox view and one-click unlocks — all in an in-game menu.
 
 Good to know before you start:
 
-- You need the **Steam version** of the game.
+- You need the **Steam version** of the game. Both the current version (**v1.3**) and the original 2013
+  release (**v1.0**) work. The tool finds out which one you have by itself and shows it at the top of the menu.
 - The game must run in **DirectX 9** mode. This is the game's default, so usually you don't need to do anything.
 - **Steam Deck / Linux (Proton):** in the game's Steam properties, set the launch options to
   `WINEDLLOVERRIDES="dinput8=n,b" %command%`. Proton is not tested yet — please tell us if it works.
@@ -147,6 +148,18 @@ The built-in list (**Default checkpoints**) is always there if you want to go ba
   save folder: `Steam\userdata\<your number>\220440\remote\`. If Steam asks about a Cloud conflict, choose the
   **local** files.
 - Your settings are kept in `Binaries\Win32\DmCPracticeTool.json`.
+
+## Both game versions on one PC
+
+v1.0 and v1.3 use **the same save files** (the same Steam folder `Steam\userdata\<your number>\220440\remote`).
+Progress made in one version is there in the other one too.
+
+- **v1.0 shows a save made in v1.3 as "NEW SAVE".** The save is still there: pick the slot and your progress
+  loads as usual. Do not start a new game in that slot — that would overwrite it.
+- Both versions use the same save format. Still, **back up your saves before switching between versions**
+  (copy the `remote` folder somewhere).
+- A save file from **Export** made in the other version shows a yellow note "made on game version ..."; you can
+  still import it.
 
 ## Troubleshooting / FAQ
 

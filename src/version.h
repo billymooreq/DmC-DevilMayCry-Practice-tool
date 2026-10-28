@@ -4,7 +4,7 @@
 
 // Practice tool version (Settings > About, compatibility report, save package manifests, logs). Separate from
 // the game version. The only place to change it for a release.
-inline constexpr const char kToolVersion[] = "0.9.0";
+inline constexpr const char kToolVersion[] = "0.10.0";
 
 // Internal build names stay in logs, dumps and save package manifests; the player only sees the label
 // ("v1.3", "v1.0", "unknown build").

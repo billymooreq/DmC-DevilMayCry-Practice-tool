@@ -125,10 +125,33 @@ That is what's needed to add a build to the table in `src/version.cpp`.
 | Shown as | Internal name | TimeDateStamp | SizeOfImage | FileVersion | Status |
 |---|---|---|---|---|---|
 | v1.3 | `latest_2025` | `0x682EAB06` | `0x02DA8000` | 1.0.8916.1 | supported (current Steam build, 2025 patch) |
-| v1.0 | `release_2013` | — | — | — | in testing |
+| v1.0 | `release_2013` | `0x50C2491C` | `0x02D93000` | — (no version resource) | supported (January 2013 release, exe built 2012-12-07) |
 
-The current Steam exe: 45 903 440 bytes, SHA-256
-`C36516FDFC927A062DE6676745D6419DEFD20F0E1453D30512C944A62ED5B409`.
+| Shown as | exe size | SHA-256 |
+|---|---|---|
+| v1.3 | 45 903 440 | `C36516FDFC927A062DE6676745D6419DEFD20F0E1453D30512C944A62ED5B409` |
+| v1.0 | 45 808 128 | `02F12DDB71FFCA869A4EE4603CD9EBA887A14A06BF9FFF69D9A48418B36156F6` |
+
+### What differs between v1.0 and v1.3 (and how the tool handles it)
+
+- **Addresses:** GNames RVA `0x26F7BA8` / `0x270AC38`, GObjects `0x26F7BD8` / `0x270AC68`, ProcessEvent
+  `0x7B010` / `0x7B7B0` (v1.0 / v1.3). The tool never hardcodes them: the same three byte signatures are unique
+  in both exes.
+- **UE3 object layout** (UObject, UField, UStruct, UProperty, UFunction incl. `Func` +0xA8, UClass CDO) is
+  identical; it is calibrated at start anyway.
+- **Class layout:** 2847 of 2879 dumped `DV*`/`NT*`/engine classes are identical. `PlayerController` and its
+  subclasses are 0x10 bytes smaller in v1.0 (e.g. `DVPlayerController_Player.m_UnlockAllUpgrades` is +0x7FC
+  instead of +0x80C), `NTInput` 4 bytes smaller. All fields are looked up by name through reflection, so
+  nothing changes for the tool. `DVGamerProfile` and the save classes are identical.
+- **UnrealScript:** the functions the tool calls or relies on (`UnlockAllMissions`, `UnlockAllSecretMissions`,
+  `UnlockForQA`, `UpdateAchievement`, `SaveProfile`, `SaveUpgrades`, `DVGameInfo.UnlockUpgrade`,
+  `NTStripUnlockingHacks`, `LoadSaveSlot`, `EnumerateContent`, exec cheats) have identical bytecode
+  (object/name operands compared by name). Differences are in menus, leaderboards, shop and the save slot
+  screen.
+- **Steam:** both versions ship the same `steam_api.dll` (same interfaces); the save key is the same.
+- **Saves:** same Steam App ID 220440, same folder, same PROFILE format (profile data version 34). The INFO
+  file (save slot screen text) differs: v1.3 writes 9 numbers; v1.0 writes the same numbers plus 3 ready-made
+  text lines and shows only the text, so a slot written by v1.3 looks like "NEW SAVE" in v1.0 but loads fine.
 
 ## Files the tool writes (in `Binaries\Win32`)
 

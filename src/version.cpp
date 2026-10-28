@@ -13,9 +13,11 @@ struct KnownBuild {
 };
 
 // latest_2025 = "v1.3" for players: current Steam build, exe SHA-256 C36516FD...B409, FileVersion 1.0.8916.1.
-// release_2013 = "v1.0" (January 2013 release): not detected yet, its TimeDateStamp/SizeOfImage go here.
+// release_2013 = "v1.0" for players: January 2013 release (exe built 2012-12-07), SHA-256 02F12DDB...56F6, no
+// FileVersion resource. Same UE3 layout and signatures as latest_2025; all class/function lookups go by name.
 constexpr KnownBuild kBuilds[] = {
     {GameVersion::Latest2025, "latest_2025", "v1.3", 0x682EAB06, 0x02DA8000},
+    {GameVersion::Release2013, "release_2013", "v1.0", 0x50C2491C, 0x02D93000},
 };
 constexpr KnownBuild kLabels[] = {
     {GameVersion::Latest2025, "latest_2025", "v1.3", 0, 0},
