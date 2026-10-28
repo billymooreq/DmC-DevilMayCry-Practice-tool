@@ -150,8 +150,14 @@ That is what's needed to add a build to the table in `src/version.cpp`.
   screen.
 - **Steam:** both versions ship the same `steam_api.dll` (same interfaces); the save key is the same.
 - **Saves:** same Steam App ID 220440, same folder, same PROFILE format (profile data version 34). The INFO
-  file (save slot screen text) differs: v1.3 writes 9 numbers; v1.0 writes the same numbers plus 3 ready-made
-  text lines and shows only the text, so a slot written by v1.3 looks like "NEW SAVE" in v1.0 but loads fine.
+  file (save slot screen text; three tables of ints / floats / strings keyed by a name hash, written through
+  `DVSaveManager.SaveSlot_Write*`) differs: v1.3 writes and shows 9 ints (version, play time, highest mission and
+  difficulty, date); v1.0's `DVGamerProfile.WriteSaveSlotMetadata` writes and shows only 3 English strings
+  ("Time played : 01:02:03", "Highest mission unlocked : Mission 20 (DMD)", "Last played: 06:37 - 28/10/2026",
+  keys `TimePlayed` / `HighestMission` / `LastPlayed`) and keeps the ints an earlier v1.3 save left in the file.
+  So a slot written by v1.3 is "NEW SAVE" in v1.0, and a slot last saved by v1.0 shows stale ints in v1.3; both
+  load fine. On **Import** the tool rebuilds INFO (both the ints and the strings) when the package comes from the
+  other version or the running version can't show its INFO; such an INFO is shown correctly by both versions.
 
 ## Files the tool writes (in `Binaries\Win32`)
 

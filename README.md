@@ -154,12 +154,16 @@ The built-in list (**Default checkpoints**) is always there if you want to go ba
 v1.0 and v1.3 use **the same save files** (the same Steam folder `Steam\userdata\<your number>\220440\remote`).
 Progress made in one version is there in the other one too.
 
-- **v1.0 shows a save made in v1.3 as "NEW SAVE".** The save is still there: pick the slot and your progress
-  loads as usual. Do not start a new game in that slot — that would overwrite it.
-- Both versions use the same save format. Still, **back up your saves before switching between versions**
-  (copy the `remote` folder somewhere).
-- A save file from **Export** made in the other version shows a yellow note "made on game version ..."; you can
-  still import it.
+The two versions write the text on the "Choose save slot" screen differently, so it can look wrong in the other
+version. Only the text is affected — your progress is always there:
+
+- **v1.0 shows a save made in v1.3 as "NEW SAVE".** Pick the slot and your progress loads as usual. Do not start
+  a new game in that slot — that would overwrite it.
+- **After you play a save in v1.0, v1.3 may show old text for it** (old play time, mission, date). Pick the slot
+  and everything is up to date.
+- **Saves → Import** works in both directions. A save file made in the other version shows a yellow note
+  "made on game version ..."; you can still import it, and the slot text is made so that both versions show it.
+- Back up your saves before switching between versions (copy the `remote` folder somewhere).
 
 ## Troubleshooting / FAQ
 

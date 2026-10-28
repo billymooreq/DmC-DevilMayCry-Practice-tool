@@ -25,6 +25,14 @@ using engine::OnGame;
 namespace slots {
 namespace {
 
+// The save slot screen of v1.3 shows the INFO numbers, v1.0 only its text lines (a slot without them is
+// "NEW SAVE" there, though it loads). Import rebuilds an INFO the running version can't show.
+// A package from the other version is rebuilt too: v1.0 keeps old numbers from an earlier v1.3 save in it.
+bool InfoShownByThisGame(const InfoData& info, const std::string& madeOn = {}) {
+  if (!madeOn.empty() && madeOn != GetGameVersion().name) return false;
+  return GetGameVersion().version == GameVersion::Release2013 ? info.hasText : info.valid;
+}
+
 std::mutex g_mu;  // guards everything below
 std::vector<SlotInfo> g_slots;
 std::vector<ImportEntry> g_imports;
@@ -269,7 +277,7 @@ void ScanImports(std::vector<ImportEntry>& out) {
         else if (ReadPackage(zip, s, m, &e.error)) {
           e.ok = true;
           e.sum = Summarize(s);
-          e.infoRebuilt = !e.sum.info.valid;
+          e.infoRebuilt = !InfoShownByThisGame(e.sum.info, m.gameVersion);
         }
         e.notes = m.notes;
         e.name = !m.name.empty() ? m.name : util::WideToUtf8(name.substr(0, name.size() - 6));
@@ -311,7 +319,7 @@ void ScanImports(std::vector<ImportEntry>& out) {
       if (e.error.empty() && CheckSet(s, &e.error)) {
         e.ok = true;
         e.sum = Summarize(s);
-        e.infoRebuilt = !e.sum.info.valid;
+        e.infoRebuilt = !InfoShownByThisGame(e.sum.info);
         Header hd;
         ParseHeader(s.dec[Profile], hd, nullptr);
         e.rawAccount = hd.account;
@@ -580,7 +588,7 @@ void ImportJob(ImportEntry e, int slot) {
     return;
   }
   Summary sum = Summarize(s);
-  if (!sum.info.valid) {
+  if (!InfoShownByThisGame(sum.info, e.gameVersion)) {
     SYSTEMTIME t;
     GetLocalTime(&t);
     s.dec[Info] = Wrap(BuildInfo(sum.profile, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute), account);

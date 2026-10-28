@@ -40,7 +40,8 @@ const char* MissionName(int m);      // 0-based: "Furnace of Souls"
 const char* StoryItemName(int id);   // EDVUpgradeItem: "Osiris (scythe)"...
 
 struct InfoData {
-  bool valid = false;      // the 2025 int format (old 2013 INFO files hold localized strings instead)
+  bool valid = false;      // has the numbers v1.3 shows (v1.0 writes and shows only the text lines)
+  bool hasText = false;    // has the text lines v1.0 shows ("Time played : 01:02:03"...)
   int version = -1, timePlayed = -1, highestMission = -1, highestDifficulty = -1;
   int year = 0, month = 0, day = 0, hour = 0, minute = 0;
 };
@@ -80,8 +81,9 @@ struct Summary {
 InfoData ParseInfo(const Bytes& payload);
 CheckpointData ParseCheckpoint(const Bytes& payload);
 ProfileData ParseProfile(const Bytes& payload);
-// Current-format INFO for a profile (time played from GENERAL_TOTALGAMETIME, highest mission/difficulty
-// like DVGamerProfile.WriteSaveSlotMetadata, the given "last played" time). Payload only.
+// INFO for a profile that both game versions show: the numbers v1.3 reads and the English text lines v1.0 reads
+// (time played from GENERAL_TOTALGAMETIME, highest mission/difficulty like DVGamerProfile.WriteSaveSlotMetadata,
+// the given "last played" time). Payload only.
 Bytes BuildInfo(const ProfileData& p, int year, int month, int day, int hour, int minute);
 
 // ------------------------------------------------------------------ slot set + package

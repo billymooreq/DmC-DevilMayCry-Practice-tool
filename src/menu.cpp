@@ -1320,7 +1320,7 @@ void TabSave() {
       extra.push_back("Plain game save files (not a .dmcpt package), Steam account " + std::to_string(e.rawAccount) +
                       ". Rename packs them into a .dmcpt file.");
     }
-    if (e.ok && e.infoRebuilt) extra.push_back("Old save format: the text on the save slot screen is rebuilt.");
+    if (e.ok && e.infoRebuilt) extra.push_back("The text on the save slot screen is rebuilt for your game version.");
     if (e.ok) SaveDetails("d", e.sum, extra);
 
     // ---- popups (inside the row's ID scope)
