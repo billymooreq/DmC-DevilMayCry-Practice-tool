@@ -1,0 +1,32 @@
+# Build output
+build/
+out/
+.vs/
+CMakeUserPresets.json
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.idb
+*.ipdb
+*.iobj
+# Binaries go to GitHub Releases only
+*.dll
+*.exe
+*.zip
+
+# Files the tool writes next to the game exe - never commit them
+DmCPracticeTool.json
+DmCPracticeTool.log
+DmCPT_*
+DMC5_SAVE_*
+*.dmcpt
+*.dmcptset
+*.chk
+*.dmp
+*.bmp
+
+# Python
+__pycache__/
+*.pyc

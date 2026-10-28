@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "_help": "Navigation catalog of DmC Practice Tool. Edit \"name\" to rename a mission or a point, move lines to change the order. \"id\" is the checkpoint name inside the level: do not change it. \"pos\"/\"yaw\" = where Teleport puts Dante. Save as DmCPT_missions.json next to the game exe.",
+  "missions": [
+    {"id": "M01", "map": "Ch1_Main", "name": "Mission 1 - Found", "type": "story", "index": 0, "points": [
+      {"checkpoint": "TrailerPark", "id": "start", "kind": "start", "name": "Mission start", "pos": [-9811.0, -1398.0, 144.0], "yaw": 25600},
+      {"id": "TrailerParkRestart", "kind": "checkpoint", "name": "Mission start(no cutscene)", "pos": [-10995.0, -275.0, 144.0], "yaw": 59360},
+      {"id": "guns", "kind": "checkpoint", "name": "Guns", "pos": [4509.0, -374.0, 158.0], "yaw": 56352},
+      {"id": "GunsRestart", "kind": "checkpoint", "name": "Guns End", "pos": [4889.0, -374.0, 158.0], "yaw": 64864},
+      {"id": "Carnival", "kind": "checkpoint", "name": "Carnival", "pos": [8307.0, -7057.0, 141.0], "yaw": 55296},
+      {"id": "CarnivalRestart", "kind": "checkpoint", "name": "Carnival Fight Won", "pos": [8307.0, -8338.0, 141.0], "yaw": 6144},
+      {"id": "CarnivalB", "kind": "checkpoint", "name": "Carnival B", "pos": [18418.0, -323.0, 77.0], "yaw": 0},
+      {"id": "CarnivalBHunter", "kind": "checkpoint", "name": "Carnival B(Hunter)", "pos": [20329.0, -217.0, 145.0], "yaw": 0},
+      {"id": "house", "kind": "checkpoint", "name": "House", "pos": [22015.0, 21758.0, -400.0], "yaw": 0},
+      {"id": "Shop", "kind": "checkpoint", "name": "Cog Room", "pos": [29339.0, 25392.0, -384.0], "yaw": 0},
+      {"id": "CogRoom", "kind": "checkpoint", "name": "Cog Room [Fight]", "pos": [29452.0, 21892.0, -390.0], "yaw": 49152},
+      {"id": "tohunter", "kind": "checkpoint", "name": "Tohunter", "pos": [29265.0, 8.0, 149.0], "yaw": 62208},
+      {"id": "Hunter", "kind": "checkpoint", "name": "Hunter", "pos": [41929.0, 770.0, 146.0], "yaw": 33792}
+    ]},
+    {"id": "M02", "map": "Ch2_Main", "name": "Mission 2 - Home Truths", "type": "story", "index": 1, "points": [
+      {"checkpoint": "MansionInitial", "id": "start", "kind": "start", "name": "Mission start", "pos": [-1767.0, 4661.0, -879.0], "yaw": 16384},
+      {"id": "StudyRoom", "kind": "checkpoint", "name": "Study Room", "pos": [16685.0, 32281.0, 917.0], "yaw": 46080},
+      {"id": "StudyRoomAxeFight", "kind": "checkpoint", "name": "Study Room Axe Fight", "pos": [16685.0, 32281.0, 917.0], "yaw": 46080},
+      {"id": "GrandFoyerFight", "kind": "checkpoint", "name": "Grand Foyer Fight", "pos": [11211.0, 28112.0, 152.0], "yaw": 30720},
+      {"id": "BedroomFight", "kind": "checkpoint", "name": "Bedroom Fight", "pos": [3437.0, 26943.0, 1025.0], "yaw": 30720},
+      {"id": "ToGrandFoyer2", "kind": "checkpoint", "name": "To Grand Foyer 2", "pos": [-41248.0, -32158.0, 1025.0], "yaw": 50176},
+      {"id": "GrandFoyer2Fight", "kind": "checkpoint", "name": "Grand Foyer 2 Fight", "pos": [-33566.0, -29989.0, 152.0], "yaw": 22784},
+      {"id": "Dining", "kind": "checkpoint", "name": "Dining Fight", "pos": [-26138.0, -25916.0, 1414.0], "yaw": 17184},
+      {"id": "GF2_Shift", "name": "GF 2 Shift", "kind": "checkpoint", "pos": [-31971.0, -28001.0, 1036.0], "yaw": 36320},
+      {"id": "AngelLiftTutorial", "kind": "checkpoint", "name": "Angel Lift Tutorial", "pos": [34637.0, 24638.0, 23959.0], "yaw": 50336},
+      {"id": "DemonPullTutorial", "kind": "checkpoint", "name": "Demon Pull Tutorial", "pos": [-643.0, 32219.0, 57550.0], "yaw": 62464}
+    ]},
+    {"id": "M03", "map": "Ch4_Main", "name": "Mission 3 - Bloodline", "type": "story", "index": 2, "points": [
+      {"checkpoint": "Ch4CutsceneIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [1885.0, -10023.0, 157.0], "yaw": 17120},
+      {"id": "cFight3Won", "kind": "checkpoint", "name": "Ch 4 Fight 3 End", "pos": [3173.0, -884.0, 157.0], "yaw": 16384},
+      {"id": "cAngelBoostTutorial", "kind": "checkpoint", "name": "Ch 4 Angel Boost Tutorial", "pos": [-3290.0, 14001.0, 57340.0], "yaw": 48128}
+    ]},
+    {"id": "M04", "map": "Ch5_Main", "name": "Mission 4 - Under Watch", "type": "story", "index": 3, "points": [
+      {"checkpoint": "cTheCity", "id": "start", "kind": "start", "name": "Mission start", "pos": [-2743.0, -14617.0, 1367.0], "yaw": 0},
+      {"id": "cFight1", "kind": "checkpoint", "name": "Fight 1", "pos": [937.0, -13977.0, 1368.0], "yaw": 0},
+      {"id": "cRoadCollapse", "kind": "checkpoint", "name": "Road Collapse", "pos": [6144.0, -13840.0, 1376.0], "yaw": 19456},
+      {"id": "cStreetCrush", "kind": "checkpoint", "name": "Alley Crush", "pos": [8107.0, -3523.0, 99.0], "yaw": 11264},
+      {"id": "cStreetCrushEndFight", "kind": "checkpoint", "name": "Alley Crush End", "pos": [9355.0, -1011.0, 70.0], "yaw": 63488},
+      {"id": "cFight2Start", "kind": "checkpoint", "name": "Fight 2", "pos": [17070.0, -1007.0, 89.0], "yaw": 65280},
+      {"id": "cFight2End", "kind": "checkpoint", "name": "Fight 2 End", "pos": [18830.0, -1007.0, 89.0], "yaw": 65280},
+      {"id": "cCrush_Start", "kind": "checkpoint", "name": "Crush", "pos": [24539.0, -1032.0, 96.0], "yaw": 0},
+      {"id": "cTankFight_Start", "kind": "checkpoint", "name": "Tank Fight", "pos": [45081.0, 7494.0, -9387.0], "yaw": 16704},
+      {"id": "cTankFight_Start2", "kind": "checkpoint", "name": "Tank Fight 2", "pos": [45081.0, 7494.0, -9387.0], "yaw": 16704},
+      {"id": "cChurchEscape_Start", "kind": "checkpoint", "name": "Church Escape", "pos": [44988.0, 7139.0, -9387.0], "yaw": 16704}
+    ]},
+    {"id": "M05", "map": "Ch6_Main", "name": "Mission 5 - Virility", "type": "story", "index": 4, "points": [
+      {"checkpoint": "cDomeHuman", "id": "start", "kind": "start", "name": "Mission start", "pos": [109866.0, -151287.0, -1660.0], "yaw": 0},
+      {"id": "cWH_Human", "kind": "checkpoint", "name": "Ware House Human", "pos": [124890.0, -135833.0, -2705.0], "yaw": 15200},
+      {"id": "cWH_DemonA", "kind": "checkpoint", "name": "Ware House Devil", "pos": [125541.0, -18856.0, -27630.0], "yaw": 32768},
+      {"id": "cWH_DemonARIGHTSIDE", "kind": "checkpoint", "name": "Ware House Devil Incidental Fight Right", "pos": [115733.0, -19672.0, -21778.0], "yaw": 0},
+      {"id": "cWarehouseTop", "kind": "checkpoint", "name": "Ware House Top", "pos": [112458.0, -19382.0, -19943.0], "yaw": 24288},
+      {"id": "cWarehouseBattle", "kind": "checkpoint", "name": "Warehouse Top Fight", "pos": [110306.0, -16241.0, -19535.0], "yaw": 16672},
+      {"id": "cWarehouseBattleWon", "kind": "checkpoint", "name": "Warehouse Top Fight Won", "pos": [110306.0, -14744.0, -19482.0], "yaw": 17664},
+      {"id": "cWH_DemonB", "kind": "checkpoint", "name": "Ware House Devil 2", "pos": [105463.0, -9168.0, -18114.0], "yaw": 33180},
+      {"id": "cWarehouseBFight", "kind": "checkpoint", "name": "Ware House Devil Incidental Fight", "pos": [92533.0, -5852.0, -15856.0], "yaw": 32768},
+      {"id": "cDL_WH_STORAGEROOM", "kind": "checkpoint", "name": "Storage Room", "pos": [87525.0, -1652.0, -15854.0], "yaw": 32768},
+      {"id": "cStorageRoomWon", "kind": "checkpoint", "name": "Storage Room Fight Won", "pos": [85806.0, -3637.0, -15854.0], "yaw": 32768},
+      {"id": "cDome_Demon", "kind": "checkpoint", "name": "Demon Dome", "pos": [92699.0, -25694.0, -15063.0], "yaw": 48904},
+      {"id": "cDome_DemonCombat", "kind": "checkpoint", "name": "Demon Dome Fight", "pos": [92315.0, -27797.0, -15074.0], "yaw": 5600},
+      {"id": "cDemonDomeFightWon", "kind": "checkpoint", "name": "Demon Dome Fight Won", "pos": [94098.0, -28993.0, -15015.0], "yaw": 16440},
+      {"id": "cWH_DemonALEFTSIDE", "kind": "checkpoint", "name": "Ware House Devil Incidental Fight Left", "pos": [116741.0, -14744.0, -22703.0], "yaw": 0}
+    ]},
+    {"id": "M06", "map": "Ch7_Main", "name": "Mission 6 - Secret Ingredient", "type": "story", "index": 5, "points": [
+      {"checkpoint": "cIntoDescent", "id": "start", "kind": "start", "name": "Mission start", "pos": [91511.0, -157408.0, 72162.0], "yaw": 17408},
+      {"id": "cPoisonHallCheckpoint", "kind": "checkpoint", "name": "Poison Hall Checkpoint", "pos": [-516.0, -13317.0, 1113.0], "yaw": 16408}
+    ]},
+    {"id": "M07", "map": "Ch8_Main", "name": "Mission 7 - Overturn", "type": "story", "index": 6, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [24103.0, -10453.0, 5338.0], "yaw": 22696},
+      {"id": "StreetPart1", "kind": "checkpoint", "name": "Street Part 1", "pos": [-5184.0, -2896.0, 8577.0], "yaw": 16384},
+      {"id": "Warehouse", "kind": "checkpoint", "name": "Warehouse", "pos": [-5616.0, 14992.0, 8577.0], "yaw": 15360},
+      {"id": "RageIntro", "kind": "checkpoint", "name": "Rage Intro", "pos": [-3035.0, 20057.0, 8537.0], "yaw": 15360},
+      {"id": "RageFight", "kind": "checkpoint", "name": "Rage End", "pos": [-3211.0, 21705.0, 8530.0], "yaw": 12288},
+      {"id": "Tether3_Checkpoint", "kind": "checkpoint", "name": "Stomp Room", "pos": [-4928.0, 23712.0, 8530.0], "yaw": 16384},
+      {"id": "WareHouseTrapCheckpoint", "kind": "checkpoint", "name": "Warehouse Trap", "pos": [-5030.0, 30305.0, 7431.0], "yaw": 17408},
+      {"id": "WareHouseTrapFightCheckpoint", "kind": "checkpoint", "name": "Warehouse Trap End", "pos": [-6115.0, 30590.0, 7431.0], "yaw": 17408},
+      {"id": "Tower_Checkpoint", "kind": "checkpoint", "name": "Street Part 2", "pos": [-4224.0, 36075.0, 8849.0], "yaw": 16384},
+      {"id": "AerialDrones_Checkpoint", "kind": "checkpoint", "name": "Aerial Drones", "pos": [-4224.0, 36075.0, 8849.0], "yaw": 16384}
+    ]},
+    {"id": "M08", "map": "Ch9A_Main", "name": "Mission 8 - Eyeless", "type": "story", "index": 7, "points": [
+      {"checkpoint": "RooftopStart", "id": "start", "kind": "start", "name": "Mission start", "pos": [-1136.0, 21696.0, 9024.0], "yaw": 32768},
+      {"id": "Station", "kind": "checkpoint", "name": "Station", "pos": [-11870.0, -1119.0, 10483.0], "yaw": 49152},
+      {"id": "Foyer", "kind": "checkpoint", "name": "Foyer", "pos": [-28747.0, -2820.0, 7340.0], "yaw": 32768},
+      {"id": "Foyer2", "kind": "checkpoint", "name": "Concourse End", "pos": [-28747.0, -2821.0, 7340.0], "yaw": 0}
+    ]},
+    {"id": "M09", "map": "Ch9B_Main", "name": "Mission 9 - Devil Inside", "type": "story", "index": 8, "points": [
+      {"checkpoint": "Phineas", "id": "start", "kind": "start", "name": "Mission start", "pos": [7980.0, 22550.0, 8406.0], "yaw": 16384},
+      {"id": "StatueDescent", "kind": "checkpoint", "name": "Statue Descent", "pos": [9289.0, 37399.0, 8388.0], "yaw": 16384},
+      {"id": "StatueClimb", "kind": "checkpoint", "name": "Statue Climb", "pos": [9765.0, 50918.0, 2070.0], "yaw": 16384},
+      {"id": "DevilTriggerArea", "kind": "checkpoint", "name": "Trigger", "pos": [-25788.0, 50234.0, 85284.0], "yaw": 57344},
+      {"id": "DevilTriggerChain", "kind": "checkpoint", "name": "Chain", "pos": [-22267.0, 43974.0, 85009.0], "yaw": 57344},
+      {"id": "StatueClimbHalf", "kind": "checkpoint", "name": "Statue Climb Half", "pos": [8093.0, 52726.0, 4587.0], "yaw": 38912},
+      {"id": "StatueClimbFirstFight", "kind": "checkpoint", "name": "Building 1", "pos": [3187.0, 49436.0, 5112.0], "yaw": 40960},
+      {"id": "StatueClimbSecondFight", "kind": "checkpoint", "name": "Building 2", "pos": [12387.0, 53498.0, 6467.0], "yaw": 56320}
+    ]},
+    {"id": "M10", "map": "Ch10_Main", "name": "Mission 10 - Bad News", "type": "story", "index": 9, "points": [
+      {"checkpoint": "LevelStart", "id": "start", "kind": "start", "name": "Mission start", "pos": [-4200.0, 60506.0, 6961.0], "yaw": 49152},
+      {"id": "NewsTunnel", "kind": "checkpoint", "name": "News Tunnel", "pos": [156480.0, -179759.0, 2386.0], "yaw": 0},
+      {"id": "Phase_1", "kind": "checkpoint", "name": "Phase 1 (not work)", "pos": [13600.0, 183664.0, -1399.0], "yaw": 32768},
+      {"id": "Phase_2", "kind": "checkpoint", "name": "Phase 2 (not work)", "pos": [13600.0, 183664.0, -1399.0], "yaw": 32768},
+      {"id": "Phase_3", "kind": "checkpoint", "name": "Phase 3 (not work)", "pos": [13600.0, 183664.0, -1399.0], "yaw": 32768}
+    ]},
+    {"id": "M11", "map": "Ch11_Main", "name": "Mission 11 - The Order", "type": "story", "index": 10, "points": [
+      {"checkpoint": "cAlley", "id": "start", "kind": "start", "name": "Mission start", "pos": [-1742.0, -531.0, -874.0], "yaw": 16384},
+      {"id": "cBuzzFight", "kind": "checkpoint", "name": "Buzzsaw Fight", "pos": [-1902.0, 5453.0, -911.0], "yaw": 49152},
+      {"id": "cAlleyFightWon", "kind": "checkpoint", "name": "Buzzsaw Fight Won", "pos": [-1742.0, -123.0, -874.0], "yaw": 16384},
+      {"id": "cBuildEnter", "kind": "checkpoint", "name": "Build Enter", "pos": [642.0, 5973.0, 541.0], "yaw": 59392},
+      {"id": "cLobby", "kind": "checkpoint", "name": "Lobby", "pos": [2285.0, 42.0, -2520.0], "yaw": 16384},
+      {"id": "cAirlockFight", "kind": "checkpoint", "name": "Airlock Fight", "pos": [2325.0, 9746.0, -2799.0], "yaw": 16384},
+      {"id": "cAirlockFightEnd", "kind": "checkpoint", "name": "Airlock Fight Won", "pos": [2325.0, 9746.0, -2799.0], "yaw": 16384},
+      {"id": "cMediaRoom", "kind": "checkpoint", "name": "Media Room", "pos": [2325.0, 12932.0, -3055.0], "yaw": 16384},
+      {"id": "cLibrary", "kind": "checkpoint", "name": "Library", "pos": [5915.0, 27415.0, -4591.0], "yaw": 0}
+    ]},
+    {"id": "M12", "map": "Ch12_Main", "name": "Mission 12 - Under Siege", "type": "story", "index": 11, "points": [
+      {"checkpoint": "cLibrary_Swat", "id": "start", "kind": "start", "name": "Mission start", "pos": [-3003.0, 35188.0, -6828.0], "yaw": 32768},
+      {"id": "cLibrary_Escape", "kind": "checkpoint", "name": "Library Escape", "pos": [-7379.0, 30567.0, -6828.0], "yaw": 16384},
+      {"id": "cLibrary_Escape2", "kind": "checkpoint", "name": "Library Escape 2", "pos": [-12097.0, 30140.0, -5482.0], "yaw": 49152},
+      {"id": "cLibrary_Escape2(quick)", "kind": "checkpoint", "name": "Library Escape 2 (quick)", "pos": [-12053.0, 27328.0, -5204.0], "yaw": 23552},
+      {"id": "cLibrary_Escape2(complete)", "kind": "checkpoint", "name": "Library Escape 2 (complete)", "pos": [-12053.0, 27328.0, -5204.0], "yaw": 23552},
+      {"id": "cCrypt", "kind": "checkpoint", "name": "Crypt", "pos": [-18615.0, 28368.0, -5005.0], "yaw": 33792},
+      {"id": "cServerRoom", "kind": "checkpoint", "name": "Server Room", "pos": [-31560.0, 29714.0, -6229.0], "yaw": 33792}
+    ]},
+    {"id": "M13", "map": "Ch13_Main", "name": "Mission 13 - Devil's Dalliance", "type": "story", "index": 12, "points": [
+      {"checkpoint": "cDanceClub", "id": "start", "kind": "start", "name": "Mission start", "pos": [15690.0, 240967.0, -33631.0], "yaw": 0},
+      {"id": "cDanceClubPostCS", "kind": "checkpoint", "name": "Dance Club (after cutscene)", "pos": [53649.0, -250048.0, 921.0], "yaw": 0},
+      {"id": "cDanceClub_1", "kind": "checkpoint", "name": "Dance Club 1", "pos": [53051.0, -239200.0, 470.0], "yaw": 0},
+      {"id": "cPsychClub", "kind": "checkpoint", "name": "Psych Club", "pos": [-12949.0, -151837.0, 1063.0], "yaw": 0},
+      {"id": "cPsychClub_1", "kind": "checkpoint", "name": "Psych Club 1", "pos": [-717.0, -151870.0, 2170.0], "yaw": 0},
+      {"id": "cPsychClub_2", "kind": "checkpoint", "name": "Psych Club 2", "pos": [12943.0, -151838.0, 4495.0], "yaw": 0},
+      {"id": "cPsychClub_3", "kind": "checkpoint", "name": "Psych Club 3", "pos": [38888.0, -150199.0, 5975.0], "yaw": 0},
+      {"id": "cNeonClub", "kind": "checkpoint", "name": "Neon Club", "pos": [13666.0, 10592.0, 84134.0], "yaw": 0},
+      {"id": "cNeonClub_1", "kind": "checkpoint", "name": "Neon Club 1", "pos": [22770.0, 10608.0, 84137.0], "yaw": 0},
+      {"id": "cNeonClub_2", "kind": "checkpoint", "name": "Neon Club 2", "pos": [35564.0, 4307.0, 85344.0], "yaw": 0},
+      {"id": "cLCDClub", "kind": "checkpoint", "name": "LCDClub", "pos": [-162303.0, 9782.0, 1885.0], "yaw": 49152},
+      {"id": "cLCDClub_2", "kind": "checkpoint", "name": "LCDClub 2", "pos": [-148072.0, 8550.0, 4821.0], "yaw": 0},
+      {"id": "cLCDClub_4", "kind": "checkpoint", "name": "LCDClub 4", "pos": [-154230.0, 145673.0, 921.0], "yaw": 0}
+    ]},
+    {"id": "M14", "map": "Ch14_Main", "name": "Mission 14 - Last Dance", "type": "story", "index": 13, "points": [
+      {"checkpoint": "Bossfight", "id": "start", "kind": "start", "name": "Mission start", "pos": [64645.0, 211639.0, 23668.0], "yaw": 0},
+      {"id": "StartFight", "kind": "checkpoint", "name": "Start Fight", "pos": [1538.0, 146.0, 132.0], "yaw": 36499}
+    ]},
+    {"id": "M15", "map": "Ch15_Main", "name": "Mission 15 - The Trade", "type": "story", "index": 14, "points": [
+      {"checkpoint": "CH15_Docks", "id": "start", "kind": "start", "name": "Mission start", "pos": [-10179.0, 2980.0, 241.0], "yaw": 10240},
+      {"id": "CH15_DocksBattle", "kind": "checkpoint", "name": "CH 15 Docks Battle", "pos": [-5968.0, -2832.0, 264.0], "yaw": 3072},
+      {"id": "CH15_DocksTraversal", "kind": "checkpoint", "name": "Docks Traversal", "pos": [3242.0, -1067.0, 1232.0], "yaw": 0},
+      {"id": "CH15_Warehouse", "kind": "checkpoint", "name": "CH 15 Warehouse", "pos": [17424.0, 1259.0, 353.0], "yaw": 1024},
+      {"id": "CH15_WarehouseBattle", "kind": "checkpoint", "name": "CH 15 Warehouse Battle", "pos": [18303.0, 4825.0, 257.0], "yaw": 61440},
+      {"id": "ch15_streets", "kind": "checkpoint", "name": "Ch 15 Streets", "pos": [35654.0, 12172.0, 537.0], "yaw": 4096},
+      {"id": "CH15_StreetsBattle", "kind": "checkpoint", "name": "CH 15 Streets Battle", "pos": [49742.0, 12619.0, 411.0], "yaw": 0}
+    ]},
+    {"id": "M16", "map": "Ch16_Main", "name": "Mission 16 - The Plan", "type": "story", "index": 15, "points": [
+      {"checkpoint": "cTowerEscapeCheckpoint", "id": "start", "kind": "start", "name": "Mission start", "pos": [16107.0, 240192.0, -37735.0], "yaw": 0},
+      {"id": "cTowerEntranceFight", "kind": "checkpoint", "name": "Entrance Fight (don't work)", "pos": [36978.0, 11932.0, 26705.0], "yaw": 20480},
+      {"id": "cTowerCheckpoint", "kind": "checkpoint", "name": "Lobby", "pos": [-193877.0, 190584.0, 24833.0], "yaw": 0},
+      {"id": "cLobbyWon", "kind": "checkpoint", "name": "Lobby Battle Won", "pos": [-189840.0, 190810.0, 24831.0], "yaw": 0},
+      {"id": "cCentralWing1", "kind": "checkpoint", "name": "Central Wing 1", "pos": [-151308.0, -170563.0, 155832.0], "yaw": 33792},
+      {"id": "cFinanceWing1", "kind": "checkpoint", "name": "Finance Wing 1", "pos": [-141123.0, -185773.0, 155834.0], "yaw": 49152},
+      {"id": "cFinanceWing2BattleWon", "kind": "checkpoint", "name": "Finance Wing 2 ", "pos": [-138272.0, -193537.0, 172767.0], "yaw": 32768},
+      {"id": "cSkyBridge2Start", "kind": "checkpoint", "name": "Sky Bridge 2", "pos": [-146261.0, -191131.0, 174040.0], "yaw": 30720},
+      {"id": "cSkyBridge2End", "kind": "checkpoint", "name": "Central Wing 2", "pos": [-150438.0, -177719.0, 174087.0], "yaw": 23552},
+      {"id": "cCentralWing3", "kind": "checkpoint", "name": "Central Wing 3", "pos": [-150913.0, -170686.0, 186051.0], "yaw": 30720},
+      {"id": "cSkyBridge3Start", "kind": "checkpoint", "name": "Finance Wing 3 ToTop", "pos": [-142511.0, -162481.0, 186061.0], "yaw": 17408},
+      {"id": "cFinanceWing3", "kind": "checkpoint", "name": "Finance Wing 3 Fight", "pos": [-144099.0, -148855.0, 188859.0], "yaw": 53248},
+      {"id": "cFinanceWing3CombatWon", "kind": "checkpoint", "name": "Finance Wing 3 Vortex Traversal", "pos": [-143972.0, -151196.0, 188859.0], "yaw": 53248}
+    ]},
+    {"id": "M17", "map": "Ch17_Main", "name": "Mission 17 - Furnace of Souls", "type": "story", "index": 16, "points": [
+      {"checkpoint": "CH18_Desolace", "id": "start", "kind": "start", "name": "Mission start", "pos": [49785.0, -5836.0, 55482.0], "yaw": 10240},
+      {"id": "CoreTraversalPart2_II", "kind": "checkpoint", "name": "Core Traversal Part 2 II", "pos": [53007.0, 6704.0, 64464.0], "yaw": 5120},
+      {"id": "cCoreFIght2", "kind": "checkpoint", "name": "Core FIght 2", "pos": [64738.0, 11780.0, 65490.0], "yaw": 62464},
+      {"id": "cCoreTraversalPart3", "kind": "checkpoint", "name": "Core Traversal Part 3", "pos": [65839.0, 12579.0, 65501.0], "yaw": 9216}
+    ]},
+    {"id": "M18", "map": "Ch18_Main", "name": "Mission 18 - Demon's Den", "type": "story", "index": 17, "points": [
+      {"checkpoint": "cTheVault", "id": "start", "kind": "start", "name": "Mission start (i don't touch any of this)", "pos": [51170.0, 888.0, 21969.0], "yaw": 0},
+      {"id": "cVaultHub", "kind": "checkpoint", "name": "Vault Hub ", "pos": [54322.0, 984.0, 21947.0], "yaw": 0},
+      {"id": "cBRGenFightStart", "kind": "checkpoint", "name": "BRFight Start", "pos": [57192.0, 10690.0, 21472.0], "yaw": 32768},
+      {"id": "cBRGenPowered", "kind": "checkpoint", "name": "BRFight Won", "pos": [57192.0, 10690.0, 21472.0], "yaw": 32768},
+      {"id": "cTRGenFightStart", "kind": "checkpoint", "name": "TRFight Start", "pos": [66089.0, 7334.0, 21129.0], "yaw": 32768},
+      {"id": "cTRGenPowered", "kind": "checkpoint", "name": "TRFight Won", "pos": [66089.0, 7334.0, 21129.0], "yaw": 32768},
+      {"id": "cTLGenFightStart", "kind": "checkpoint", "name": "TLFight Start", "pos": [57717.0, -15966.0, 19922.0], "yaw": 16384},
+      {"id": "cTLGenPowered", "kind": "checkpoint", "name": "TLFight Won", "pos": [57717.0, -15966.0, 19922.0], "yaw": 16384},
+      {"id": "cBLGenFightStart", "kind": "checkpoint", "name": "BLFight Start", "pos": [45149.0, -9910.0, 21155.0], "yaw": 16384},
+      {"id": "cVaultCracked", "kind": "checkpoint", "name": "Vault Cracked", "pos": [45149.0, -9910.0, 21155.0], "yaw": 16384},
+      {"id": "cBLGenPowered", "kind": "checkpoint", "name": "BLFight Won", "pos": [45149.0, -9910.0, 21155.0], "yaw": 16384}
+    ]},
+    {"id": "M19", "map": "Ch19_Main", "name": "Mission 19 - Face of the Demon", "type": "story", "index": 18, "points": [
+      {"checkpoint": "Level_Started", "id": "start", "kind": "start", "name": "Mission start", "pos": [-171937.0, 104083.0, 41098.0], "yaw": 0},
+      {"id": "cMundus_FightRoof2", "kind": "checkpoint", "name": "Mundus Use DT Restart", "pos": [-13410.0, 2693.0, 16880.0], "yaw": 2048},
+      {"id": "cCorridor_Save", "kind": "checkpoint", "name": "Corridor Save", "pos": [3199.0, 12669.0, 21185.0], "yaw": 61532},
+      {"id": "cPart_2_Save", "kind": "checkpoint", "name": "Fight (broken textures)", "pos": [6700.0, -4014.0, 19453.0], "yaw": 33168}
+    ]},
+    {"id": "M20", "map": "Ch20_Main", "name": "Mission 20 - The End", "type": "story", "index": 19, "points": [
+      {"checkpoint": "Checkpoint1", "id": "start", "kind": "start", "name": "Mission start", "pos": [63315.0, -1009.0, -11536.0], "yaw": 40468}
+    ]},
+    {"id": "SM01", "map": "SecretMission01_Main", "name": "Secret Mission 1 - Air brawl", "type": "secret", "index": 0, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [162480.0, -154864.0, 53064.0], "yaw": 16384}
+    ]},
+    {"id": "SM02", "map": "SecretMission02_Main", "name": "Secret Mission 2 - Simple traversal", "type": "secret", "index": 1, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [-1.0, -2536.0, 50142.0], "yaw": 7281}
+    ]},
+    {"id": "SM03", "map": "SecretMission03_Main", "name": "Secret Mission 3 - Simple Eradication", "type": "secret", "index": 2, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [217728.0, -215808.0, 66.0], "yaw": 60439}
+    ]},
+    {"id": "SM04", "map": "SecretMission04_Main", "name": "Secret Mission 4 - Demonic conflict", "type": "secret", "index": 3, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [245648.0, -247280.0, -210.0], "yaw": 16384}
+    ]},
+    {"id": "SM05", "map": "SecretMission05_Main", "name": "Secret Mission 5 - Angelic warfare", "type": "secret", "index": 4, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [245552.0, -247280.0, -183.0], "yaw": 16384}
+    ]},
+    {"id": "SM06", "map": "SecretMission06_Main", "name": "Secret Mission 6 - Rapid descent", "type": "secret", "index": 5, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [112359.0, -19286.0, -20008.0], "yaw": 60074}
+    ]},
+    {"id": "SM07", "map": "SecretMission07_Main", "name": "Secret Mission 7 - A taste of Heaven", "type": "secret", "index": 6, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [112352.0, -153504.0, -1736.0], "yaw": 16384}
+    ]},
+    {"id": "SM08", "map": "SecretMission08_Main", "name": "Secret Mission 8 - Stylish victory", "type": "secret", "index": 7, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [-166752.0, -215376.0, 238563.0], "yaw": 16384}
+    ]},
+    {"id": "SM09", "map": "SecretMission09_Main", "name": "Secret Mission 9 - Bait and switch", "type": "secret", "index": 8, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [228906.0, -228135.0, 1.0], "yaw": 0}
+    ]},
+    {"id": "SM10", "map": "SecretMission10_Main", "name": "Secret Mission 10 - The power within", "type": "secret", "index": 9, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [44992.0, 9040.0, -9466.0], "yaw": 16384}
+    ]},
+    {"id": "SM11", "map": "SecretMission11_Main", "name": "Secret Mission 11 - What goes around", "type": "secret", "index": 10, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [-44893.0, -30181.0, 2411.0], "yaw": 36408}
+    ]},
+    {"id": "SM12", "map": "SecretMission12_Main", "name": "Secret Mission 12 - Moderate traversal", "type": "secret", "index": 11, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [-222654.0, 195659.0, -22108.0], "yaw": 0}
+    ]},
+    {"id": "SM13", "map": "SecretMission13_Main", "name": "Secret Mission 13 - Flawless Conquest", "type": "secret", "index": 12, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [3398.0, 26758.0, 945.0], "yaw": 41870}
+    ]},
+    {"id": "SM14", "map": "SecretMission14_Main", "name": "Secret Mission 14 - Colossal Triumph", "type": "secret", "index": 13, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [208041.0, -225006.0, 57109.0], "yaw": 41870}
+    ]},
+    {"id": "SM15", "map": "SecretMission15_Main", "name": "Secret Mission 15 - Hasty acquisition", "type": "secret", "index": 14, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [1760.0, -13712.0, 1290.0], "yaw": 49492}
+    ]},
+    {"id": "SM16", "map": "SecretMission16_Main", "name": "Secret Mission 16 - Displaced skirmish", "type": "secret", "index": 15, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [205264.0, -215664.0, 16.0], "yaw": 49152}
+    ]},
+    {"id": "SM17", "map": "SecretMission17_Main", "name": "Secret Mission 17 - Divergent slaughter", "type": "secret", "index": 16, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [224960.0, -247792.0, 1539.0], "yaw": 16384}
+    ]},
+    {"id": "SM18", "map": "SecretMission18_Main", "name": "Secret Mission 18 - Extreme traversal", "type": "secret", "index": 17, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [-101934.0, 105359.0, 50801.0], "yaw": 8192}
+    ]},
+    {"id": "SM19", "map": "SecretMission19_Main", "name": "Secret Mission 19 - A day in Hell", "type": "secret", "index": 18, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [244060.0, -245780.0, 24752.0], "yaw": 16384}
+    ]},
+    {"id": "SM20", "map": "SecretMission20_Main", "name": "Secret Mission 20 - Subsistence", "type": "secret", "index": 19, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [225072.0, -221024.0, 7158.0], "yaw": 16384}
+    ]},
+    {"id": "SM21", "map": "SecretMission21_Main", "name": "Secret Mission 21 - Shenanigans", "type": "secret", "index": 20, "points": [
+      {"checkpoint": "BridgeIntro", "id": "start", "kind": "start", "name": "Mission start", "pos": [-31776.0, 29824.0, -6306.0], "yaw": 32768}
+    ]}
+  ]
+}

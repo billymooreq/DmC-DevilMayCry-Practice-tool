@@ -1,0 +1,2 @@
+// Navigation catalog built into the DLL (nav.cpp: FindResource(101, RT_RCDATA)).
+101 RCDATA "../data/missions.json"
