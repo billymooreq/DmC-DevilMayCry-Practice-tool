@@ -5,6 +5,7 @@ spawner, damage log, hitbox view, speedrun timers and one-click unlocks — all 
 
 ![Game version](https://img.shields.io/badge/game-v1.3%20%28current%20Steam%29-brightgreen)
 ![v1.0](https://img.shields.io/badge/game-v1.0%20%282013%29-brightgreen)
+![nonsteam](https://img.shields.io/badge/game-v1.3%20nonsteam-brightgreen)
 ![Status](https://img.shields.io/badge/status-beta-blue)
 
 <p align="center">
@@ -29,8 +30,10 @@ spawner, damage log, hitbox view, speedrun timers and one-click unlocks — all 
 
 Good to know before you start:
 
-- You need the **Steam version** of the game. Both the current version (**v1.3**) and the original 2013
-  release (**v1.0**) work. The tool finds out which one you have by itself and shows it at the top of the menu.
+- Works with the **Steam version** of the game: both the current version (**v1.3**) and the original 2013
+  release (**v1.0**). **Non-Steam copies of v1.3** work too — the menu shows them as "v1.3 nonsteam", and Saves
+  (Import / Export) use the place where that copy keeps its saves. The tool finds out which version you have by
+  itself and shows it at the top of the menu.
 - The game must run in **DirectX 9** mode. This is the game's default, so usually you don't need to do anything.
 - **Steam Deck / Linux (Proton):** in the game's Steam properties, set the launch options to
   `WINEDLLOVERRIDES="dinput8=n,b" %command%`. Proton is not tested yet — please tell us if it works.
