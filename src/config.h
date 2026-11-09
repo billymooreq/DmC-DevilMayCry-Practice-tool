@@ -1,14 +1,20 @@
 #pragma once
 #include <string>
 
+#include "hotkeys.h"
 #include "json.hpp"
 
 // DmCPracticeTool.json next to the exe. Auto-loaded at startup, saved automatically on changes (binds, sliders,
 // presets, window) and by Save/Load in Settings. The "Practice Tool Active" label has no settings on purpose:
 // old "overlay" / "hold_hotkey" / "debug.force_overlay" entries are ignored and dropped on the next save.
 struct Config {
-  int menuKey = 0x2D;  // VK_INSERT
+  hotkeys::Bind menuKey{0x2D, 0, 0};  // open / close the menu: any key (+ modifiers) or gamepad combination
   bool showDevTab = false;
+  bool pauseInMenu = true;  // the game stands still while the menu is open (in a mission)
+  bool hideHints = false;   // "Disable hints": no description box at the bottom of the menu
+  bool debugMenu = false;   // "Unlock the game's debug menu": Pause + Angel + Demon opens it (devtools.cpp)
+  int windowMode = 0;       // Settings > GAME WINDOW: 0 fullscreen, 1 fullscreen window, 2 window (winmode::Mode);
+                            // read at game start (window_mode.cpp, DllMain); picking one restarts the game
 
   // Menu window, fractions of the screen (w <= 0 = not saved yet).
   float winX = 0, winY = 0, winW = 0, winH = 0;

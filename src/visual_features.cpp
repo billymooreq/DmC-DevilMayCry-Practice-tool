@@ -37,8 +37,8 @@ class CharacterCollision : public Visual {
   CharacterCollision(bool enemies, const char* i, const char* n, const char* h)
       : Visual(enemies ? Cat::Enemy : Cat::Player, i, n, h), enemies_(enemies) {
     params = {{"capsule", "Movement capsule", 0, 0, 1, "", ParamKind::Toggle, {},
-               enemies ? "Also the upright capsule the enemy walks and pushes with (faint lines). Hits do not use it."
-                       : "Also the upright capsule Dante walks and pushes with (faint lines). Hits do not use it."}};
+               enemies ? "Also the capsule the enemy moves with (faint lines). Hits do not use it."
+                       : "Also Dante's movement capsule (faint lines). Hits do not use it."}};
   }
 };
 
@@ -48,9 +48,8 @@ class InvisibleWalls : public Visual {
  public:
   InvisibleWalls()
       : Visual(Cat::Walls, "vis_invisible_walls", "Invisible walls",
-               "Walls you cannot see but Dante cannot walk through: the level's blocking areas that stop him right "
-               "now. Walls the level has switched off, or that stop only enemies, are not shown.") {
-    params = {{"grid", "Grid", 1, 0, 1, "", ParamKind::Toggle, {},
+               "Yellow: walls you cannot see in the game but Dante cannot walk through.") {
+    params = {{"grid", "Grid (1 m)", 1, 0, 1, "", ParamKind::Toggle, {},
                "A 1 m grid on the walls near Dante, so their size and height are easy to read."}};
   }
 };
@@ -61,11 +60,23 @@ class AttackHitboxes : public Visual {
  public:
   AttackHitboxes()
       : Visual(Cat::Hitbox, "vis_hitboxes", "Attack hitboxes",
-               "The zone each attack checks for hits, while it is active: Dante's in pink, enemies' in red. Many "
-               "attacks are active only for a few frames, so the shape stays on screen a little longer and fades. "
-               "Hits without a zone (guns on a locked target, grabs) show as a line to the target.") {
+               "Draws attack hitboxes while they can hit: Dante's pink, enemies' red. Hits without a zone (guns on "
+               "a locked target, grabs) show as a line to the target.") {
     params = {{"linger", "Keep on screen", 0.3f, 0.0f, 2.0f, "%.1f s", ParamKind::Slider, {},
-               nullptr}};
+               "How long an attack hitbox stays on screen after the hit.", 0.1f, 10.0f}};
+  }
+};
+
+class AreaDamage : public Visual {
+  void Apply(const Ctx& c) override { visuals::SetAreaLinger(c.p[0]); }
+
+ public:
+  AreaDamage()
+      : Visual(Cat::Area, "vis_area_damage", "Explosions & area damage",
+               "Teal: explosions, shock waves, poison and other damage zones, while they can hurt. Grenades and "
+               "bombs in flight: a small shape with a ring for where they will explode.") {
+    params = {{"linger", "Keep on screen", 0.5f, 0.0f, 2.0f, "%.1f s", ParamKind::Slider, {},
+               "How long an explosion stays on screen after it stops hurting.", 0.1f, 10.0f}};
   }
 };
 
@@ -75,23 +86,24 @@ class AttackHitboxes : public Visual {
 std::vector<Feature*> CreateVisualFeatures() {
   return {
       new CharacterCollision(true, "vis_enemy_collision", "Enemy collision",
-                             "The shapes on each enemy's body that attacks are checked against (capsules and balls on "
-                             "the bones; they move with the animation). A hit counts only where an attack touches them."),
+                             "Draws enemy bodies (orange): the shapes attacks are checked against."),
       new CharacterCollision(false, "vis_player_collision", "Player collision",
-                             "The same for Dante: the shapes enemy attacks must touch to hit him."),
+                             "Draws Dante's body (blue): the shapes enemy attacks must touch to hit him."),
       new AttackHitboxes,
+      new AreaDamage,
       new Visual(Cat::HitMarker, "vis_hit_markers", "Hit markers",
-                 "A small star where a hit really counted (white: Dante's hits, red: hits on Dante). Handy to check "
-                 "that the hitbox you see matches the game. Fades after a second."),
+                 "Marks where hits land (white: Dante's hits, light red: hits on Dante). Fades after a second."),
+      new Visual(Cat::Hazard, "vis_level_hazards", "Level hazards",
+                 "Lime: parts of the level that hurt when touched (fire, spikes, poison, pits). Faint: switched off "
+                 "for now, or a trap for enemies only (Dante can knock them in)."),
       new Visual(Cat::Cutscene, "vis_cutscene_triggers", "Cutscene triggers",
-                 "Areas that start a cutscene when Dante walks in. Faint: already used, or not switched on by the "
-                 "level yet."),
+                 "Purple boxes that start cutscenes. Faint: already used, or not switched on yet."),
       new Visual(Cat::Arena, "vis_arena_triggers", "Arena triggers",
-                 "Areas that start a fight (\"Arena\") or bring the next wave of enemies into it (\"Arena wave\"). "
-                 "Faint: already used, or not switched on by the level yet."),
+                 "Green boxes that start arena fights or bring the next wave. Faint: already used, or not switched "
+                 "on yet."),
       new InvisibleWalls,
       new Visual(Cat::OtherTrigger, "vis_other_triggers", "Other triggers",
-                 "All other walk-in areas of the level script (doors, music, camera, tutorials, loading...)."),
+                 "Grey: all other level triggers (doors, music, camera, tutorials, loading...)."),
   };
 }
 

@@ -39,11 +39,12 @@ const char* AvailText(Avail a);  // "", "loads first", "not on this map"
 // ---- what the player picked (any thread; saved in DmCPracticeTool.json "enemies")
 struct Selection {
   std::string kind = "WarriorDrone";
-  int count = 1;          // 1..10
-  int where = 0;          // 0 = in front of Dante, 1 = saved position
+  int count = 1;          // 1..kMaxCount
+  int where = 0;          // 0 = in front of Dante, 1 = an enemy position
   float distance = 4.0f;  // metres in front of Dante (1 m = 100 game units)
-  int posSlot = 0;        // saved position slot (nav)
+  int posSlot = 3;        // enemy position: nav slot 3..5 (shown as 4..6), separate from Dante's 1..3
 };
+constexpr int kMaxCount = 40;  // a typed "How many" may go above the slider (10) up to this
 Selection GetSel();
 void SetSel(const Selection& s);
 void LoadJson(const nlohmann::json& j);

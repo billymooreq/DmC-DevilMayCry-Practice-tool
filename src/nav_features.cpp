@@ -3,6 +3,7 @@
 #include "features.h"
 #include "nav.h"
 #include "realcp.h"
+#include "menu.h"
 
 namespace features {
 namespace {
@@ -24,10 +25,11 @@ class RestartMission : public NavAction {
   RestartMission() : NavAction(nav::Action::Restart) {
     id = "nav_restart";
     name = "Restart mission";
-    help = "Starts the current mission again from the very beginning, on the same difficulty - like Restart in "
-           "the pause menu.";
+    help = "Starts the mission you are in from the beginning, on the same difficulty.";
   }
-  void Run(const Ctx& c) override { nav::RestartMission(c.w); }
+  void Run(const Ctx& c) override {
+    nav::RestartMission(c.w);
+  }
 };
 
 class LoadCheckpoint : public NavAction {
@@ -35,10 +37,12 @@ class LoadCheckpoint : public NavAction {
   LoadCheckpoint() : NavAction(nav::Action::LoadCheckpoint) {
     id = "nav_checkpoint";
     name = "Load checkpoint";
-    help = "Loads the mission at the checkpoint picked above, the way Continue does: enemies, arenas, doors and "
-           "scripts are set up for that point. Takes a loading screen.";
+    help = "Loads the picked checkpoint, the way Continue does: enemies, arenas and doors are set up for it.";
   }
-  void Run(const Ctx& c) override { nav::LoadPoint(c.w, nav::PointFor(nav::GetSel(), c.w.map)); }
+  void Run(const Ctx& c) override {
+    int pt = nav::PointFor(nav::GetSel(), c.w.map);
+    nav::LoadPoint(c.w, pt);
+  }
 };
 
 class Teleport : public NavAction {
@@ -47,10 +51,11 @@ class Teleport : public NavAction {
     id = "nav_teleport";
     name = "Teleport to point";
     noBind = true;
-    help = "Moves only Dante to the point picked above, instantly. The level is NOT reset: enemies, arenas and "
-           "doors stay as they are. Use Load checkpoint for a clean start.";
+    help = "Moves only Dante to the picked point. Enemies, arenas and doors stay as they are.";
   }
-  void Run(const Ctx& c) override { nav::Teleport(c.w, nav::PointFor(nav::GetSel(), c.w.map)); }
+  void Run(const Ctx& c) override {
+    nav::Teleport(c.w, nav::PointFor(nav::GetSel(), c.w.map));
+  }
 };
 
 class SavePosition : public NavAction {
@@ -59,8 +64,7 @@ class SavePosition : public NavAction {
     group = Group::Positions;
     id = "nav_save_pos";
     name = "Save position";
-    help = "Remembers where Dante stands and where he looks, in the slot picked above. Slots are kept until you "
-           "leave this map.";
+    help = "Remembers where Dante stands in the picked slot.";
   }
   void Run(const Ctx& c) override { nav::SavePos(c.w, nav::GetSel().slot); }
 };
@@ -71,9 +75,12 @@ class LoadPosition : public NavAction {
     group = Group::Positions;
     id = "nav_load_pos";
     name = "Load position";
-    help = "Puts Dante back where you saved him (slot picked above). Only Dante moves, the level is not reset.";
+    help = "Moves Dante back to the saved place. Only Dante moves.";
   }
-  void Run(const Ctx& c) override { nav::LoadPos(c.w, nav::GetSel().slot); }
+  void Run(const Ctx& c) override {
+    int slot = nav::GetSel().slot;
+    nav::LoadPos(c.w, slot);
+  }
 };
 
 class KeepCheckpoint : public NavAction {
@@ -82,11 +89,46 @@ class KeepCheckpoint : public NavAction {
     id = "nav_keep";
     name = "Create checkpoint";
     noBind = true;
-    help = "Play to a checkpoint normally, then press this: the tool saves a copy of the checkpoint the game just "
-           "reached (what Continue would load). From then on Load checkpoint loads that checkpoint from your copy, "
-           "exactly like Continue: moving floors, doors and scripts as they were.";
+    help = "Play to a checkpoint normally, then press this: the checkpoint the game just saved becomes your own. "
+           "It loads exactly like Continue.";
   }
   void Run(const Ctx&) override { realcp::KeepLast(); }
+};
+
+// "Delete my checkpoint": the checkpoint the player created for the picked point of this mission. Deletes a
+// file of the tool only (the game is not touched).
+class DeleteMyCheckpoint : public Feature {
+ public:
+  DeleteMyCheckpoint() {
+    id = "nav_delete_mine";
+    name = "Delete my checkpoint";
+    group = Group::Navigation;
+    action = true;
+    noOverlay = true;  // a file of the tool, not the game
+    help = "Deletes the checkpoint you made for the picked point. That point then loads the normal way again.";
+  }
+  static bool Mine(std::string* map, std::string* cp) {
+    nav::Snapshot s = nav::Now();
+    if (s.missionIndex < 0) return false;
+    const nav::Mission& m = nav::Missions()[s.missionIndex];
+    int pt = nav::PointFor(nav::GetSel(), m.map);
+    if (pt < 0 || pt >= (int)m.points.size() || m.points[pt].cp.empty() || !realcp::Find(m.map, m.points[pt].cp))
+      return false;
+    *map = m.map;
+    *cp = m.points[pt].cp;
+    return true;
+  }
+  std::string Blocked() const override {
+    std::string m, c;
+    if (!nav::Now().mission) return "in a mission only";
+    return Mine(&m, &c) ? "" : "the picked checkpoint is not one you made";
+  }
+  void Run(const Ctx&) override {
+    std::string m, c;
+    if (!Mine(&m, &c)) return;
+    realcp::Forget(m, c);
+    menu::Toast("Your checkpoint deleted: this point loads the normal way again");
+  }
 };
 
 class MissionSelect : public NavAction {
@@ -96,13 +138,19 @@ class MissionSelect : public NavAction {
     id = "nav_mission";
     name = "Mission select";
     frontEndOk = true;
-    help = "Loads the mission, difficulty and checkpoint picked above, from inside a mission or from the main "
-           "menu. Nothing new is unlocked in your save by loading. Secret missions always use their own "
-           "difficulty.";
+    help = "Loads the picked mission, difficulty and checkpoint. Nothing new is unlocked in your save.";
+  }
+  // A dev room (selMission < 0) needs a save slot (it saves a checkpoint as it starts).
+  std::string Blocked() const override {
+    return nav::Blocked(nav::GetSel().selMission < 0 ? nav::Action::DevRoom : nav::Action::MissionSelect);
   }
   void Run(const Ctx& c) override {
     nav::Selection s = nav::GetSel();
-    nav::MissionSelect(c.w, s.selMission, s.selDifficulty, s.selPoint);
+    if (s.selMission < 0)
+      nav::StartDevRoom(c.w, -s.selMission - 1, s.selDifficulty);
+    else {
+      nav::MissionSelect(c.w, s.selMission, s.selDifficulty, s.selPoint);
+    }
   }
 };
 
@@ -111,7 +159,7 @@ class MissionSelect : public NavAction {
 // Menu order on the Practice tab.
 std::vector<Feature*> CreateNavFeatures() {
   return {new MissionSelect, new LoadCheckpoint, new Teleport,     new RestartMission,
-          new KeepCheckpoint, new SavePosition,   new LoadPosition};
+          new KeepCheckpoint, new SavePosition,   new LoadPosition, new DeleteMyCheckpoint};
 }
 
 }  // namespace features

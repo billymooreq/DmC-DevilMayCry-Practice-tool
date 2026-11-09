@@ -11,9 +11,11 @@
 #include "input.h"
 #include "log.h"
 #include "menu.h"
+#include "ui.h"
 #include "ue3/engine.h"
 #include "util.h"
 #include "visuals.h"
+#include "window_mode.h"
 
 #include <algorithm>
 #include <atomic>
@@ -152,7 +154,8 @@ bool InitImGui(IDirect3DDevice9* dev) {
   ImGuiIO& io = ImGui::GetIO();
   io.IniFilename = nullptr;  // window layout is not persisted (nothing written next to the game)
   io.LogFilename = nullptr;
-  menu::SetupFonts();
+  ui::InitFonts();
+  menu::SetupStyle();
   if (!ImGui_ImplWin32_Init(hwnd) || !ImGui_ImplDX9_Init(dev)) {
     LOG("imgui: backend init failed");
     return false;
@@ -638,6 +641,10 @@ void RenderFrame(IDirect3DDevice9* dev, bool wrapScene) {
   visuals::SetOcclusionLive(g_sceneDepth && g_vpReg >= 0 && g_vpFrameOk && !g_layerFailed);
   input::OnFrame(g_hwnd);
 
+  if (ui::FontsWanted()) {  // menu / screen scale changed: fonts at the new sizes (crisp, no stretching)
+    ImGui_ImplDX9_InvalidateDeviceObjects();
+    ui::RebuildFonts();  // ImGui_ImplDX9_NewFrame builds the new font texture
+  }
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
   if (desc.Width && desc.Height) ImGui::GetIO().DisplaySize = ImVec2((float)desc.Width, (float)desc.Height);
@@ -847,6 +854,7 @@ HRESULT WINAPI hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp) {
   g_layerFailed = false;
   g_queriesFailed = false;
   visuals::SetOcclusionLive(false);
+  winmode::FixPresent(pp);  // Settings > Borderless window: the reset device stays windowed
   HRESULT hr = oReset(dev, pp);
   if (ours && SUCCEEDED(hr)) ImGui_ImplDX9_CreateDeviceObjects();
   LOG("d3d9: Reset -> 0x%08X", (unsigned)hr);
@@ -941,6 +949,20 @@ void Install() {
     hooks::Enable(vt[94], "D3D9.SetVertexShaderConstantF");
   if (g_useEndScene && hooks::Create(vt[42], (void*)&hkEndScene, (void**)&oEndScene, "D3D9.EndScene"))
     hooks::Enable(vt[42], "D3D9.EndScene");
+}
+
+void* CreateTextureBGRA(const void* pixels, int w, int h) {
+  if (!g_device || !pixels || w <= 0 || h <= 0) return nullptr;
+  IDirect3DTexture9* t = nullptr;
+  if (FAILED(g_device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr)) || !t) return nullptr;
+  D3DLOCKED_RECT lr;
+  if (FAILED(t->LockRect(0, &lr, nullptr, 0))) {
+    t->Release();
+    return nullptr;
+  }
+  for (int y = 0; y < h; ++y) memcpy((uint8_t*)lr.pBits + y * lr.Pitch, (const uint8_t*)pixels + y * w * 4, w * 4);
+  t->UnlockRect(0);
+  return t;
 }
 
 void RequestTrace() { g_traceReq = 1; }

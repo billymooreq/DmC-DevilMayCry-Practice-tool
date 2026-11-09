@@ -13,6 +13,7 @@
 #include "ue3/dumper.h"
 #include "ue3/ue3.h"
 #include "version.h"
+#include "window_mode.h"
 
 static DWORD WINAPI InitThread(LPVOID) {
   const VersionInfo& v = GetGameVersion();
@@ -20,7 +21,7 @@ static DWORD WINAPI InitThread(LPVOID) {
   LOG("game version: %s = %s (TimeDateStamp=0x%08X SizeOfImage=0x%08X base=0x%08X)", v.name, v.label,
       v.timeDateStamp, v.sizeOfImage, (unsigned)v.base);
   if (!FeaturesAllowed())
-    LOG("WARNING: unknown game build - menu works, all game features are locked");
+    LOG("WARNING: unknown game build - nothing is locked, features may not work (compatibility report helps)");
 
   features::Init();  // before the config: it holds the feature binds and presets
   LoadConfig();
@@ -62,6 +63,8 @@ static DWORD WINAPI InitThread(LPVOID) {
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
   if (reason == DLL_PROCESS_ATTACH) {
     DisableThreadLibraryCalls(inst);
+    // Settings > Borderless window: the exe's imports must be redirected before its WinMain creates the device.
+    winmode::InstallEarly();
     // Nothing heavy under the loader lock: everything happens in the init thread.
     HANDLE t = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);
     if (t) CloseHandle(t);

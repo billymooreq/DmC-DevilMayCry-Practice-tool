@@ -34,6 +34,15 @@ nlohmann::json SaveJson();
 void Clear();
 void SetFilter(int f);  // 0 all, 1 Dante's hits, 2 hits on Dante
 void SetMergeWeak(bool on);  // weak spot damage added to its hit
+// Settings shown in the Enemies tab (the window itself has no controls)
+int Filter();
+int View();  // 0 hits, 1 moves (totals per move)
+void SetView(int v);
+bool MergeWeak();
+bool HideInGame();  // not drawn while the menu is closed; hits are still counted
+void SetHideInGame(bool on);
+size_t Count();
+void AddTestRows();  // autorun: sample rows (a weak spot hit, a hit on Dante, a long name), named "TEST ..."
 bool ExportCsv(std::string* path);
 std::vector<std::string> DebugLines(int last);
 std::vector<std::string> SummaryLines();

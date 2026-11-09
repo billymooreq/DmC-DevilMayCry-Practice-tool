@@ -17,9 +17,10 @@
 // object then). Disable() puts back everything the feature changed. With nothing on, the game is untouched.
 namespace features {
 
-// Cheats tab: Player, Enemies, Game, Visuals (groups with a heading, in this order). Practice tab: Navigation
-// (later: enemy spawn, damage log).
-enum class Group { Player, Enemies, Game, Visuals, Navigation, Positions, Missions, EnemyTools, DamageLog };
+// Cheats tab: Player, Enemies, Damage, Speed. Practice tab: Missions, Navigation, Positions. Enemies tab:
+// EnemyTools, DamageLog. Visuals tab: Visuals. GroupName = the short name in the Hotkeys tab.
+enum class Group { Player, Enemies, Damage, Speed, Visuals, Navigation, Positions, Missions, EnemyTools, DamageLog,
+                   Cutscenes, Camera, Timers, Speedrun };
 const char* GroupName(Group g);
 
 // Parameters are floats everywhere (json, presets); the kind only changes the widget:
@@ -33,7 +34,9 @@ struct ParamDef {
   const char* fmt;    // Slider: ImGui format, e.g. "%.1fx"
   ParamKind kind = ParamKind::Slider;
   std::vector<const char*> choices = {};  // Choice: option names
-  const char* help = nullptr;             // Toggle / Choice: tooltip
+  const char* help = nullptr;             // hint at the bottom of the menu when pointed at
+  float step = 0.1f;                      // Slider: the < > arrows
+  float hardMax = 1000.0f;                // Slider: a typed number may go above max (the slider) up to this
   std::string Text(float v) const;        // "1.5x", "on", "Level flight"
 };
 
@@ -54,8 +57,14 @@ class Feature {
   bool action = false;            // one-shot button instead of a checkbox (navigation)
   bool frontEndOk = false;        // action: may also run in the main menu (Mission select)
   bool noBind = false;            // no key / preset for it (Teleport to point, Create checkpoint)
+  bool anywhere = false;          // also applied in the main menu and while Dante is not there (Skip cutscenes)
+  bool noOverlay = false;         // does not change the game (timers): no "Practice Tool Active", Steam stats stay
   std::vector<ParamDef> params;
-  const char* loserTo = nullptr;  // id of a feature that wins when both are on (shown as a warning)
+  // Features that have priority over this one: while one of them is on, this one is switched off and locked
+  // (menu: grey, "[Infinite HP has priority]"). Presets follow the same rule.
+  std::vector<const char*> losesTo;
+  // A multiplier (Damage dealt, Game speed...): no on/off of its own - it is on while its value is not the default.
+  bool autoOn = false;
 
   virtual ~Feature() = default;
   // Game thread, in a mission. Enable: false = try again next frame. Disable must restore every change it made
@@ -84,6 +93,8 @@ struct View {
   Params manualP{};
 };
 View Get(const std::string& id);
+// The feature that has priority over id and is on now (nullptr = none): id is locked in the menu.
+Feature* LockedBy(const std::string& id);
 void SetManual(const std::string& id, bool on);
 void ToggleManual(const std::string& id);
 void SetParam(const std::string& id, int i, float v);  // manual parameter (also ticks the feature)
@@ -114,6 +125,16 @@ void MarkDirty();  // config changed: autosave
 // "Practice Tool Active": true from the first time any feature was turned on in this game session, until exit.
 bool OverlaySticky();
 void ForceOverlay();  // autorun tests only
+
+// ---- Speedrun mode (Timers > Speedrun, "Go legit"). A "cheat" is every feature that changes the game (all but
+// noOverlay ones: timers, speedrun buttons). In Speedrun mode no cheat can turn on: not from the menu, a key, a
+// preset or a script; the menu pause is off and "Practice Tool Active" is not shown.
+bool IsCheat(const Feature* f);
+bool SpeedrunMode();
+// Turns every cheat off (ticks, multipliers back to normal, presets off, queued presses dropped), removes the label
+// and turns Speedrun mode on. Returns the names of what was on (for the log / status line).
+std::vector<std::string> GoLegit();
+void LeaveSpeedrun();  // back to normal; nothing turns on by itself
 
 // Game status line for the menu (any thread).
 game::Status Status();

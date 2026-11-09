@@ -9,6 +9,7 @@
 
 #include "game.h"
 #include "log.h"
+#include "menu.h"
 #include "savefile.h"
 #include "saveslots.h"
 #include "steam_guard.h"
@@ -33,6 +34,7 @@ void Say(const std::string& m) {
   LOG("realcp: %s", m.c_str());
   std::lock_guard<std::mutex> lk(g_mu);
   g_msg = m;
+  menu::Toast(m);
 }
 
 std::string Lower(std::string s) {

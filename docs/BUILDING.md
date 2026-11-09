@@ -5,7 +5,7 @@
 - Windows 10/11.
 - **Visual Studio 2022 Build Tools** (or Visual Studio 2022) with the workload *Desktop development with C++*:
   MSVC x86/x64 toolset and a Windows 10/11 SDK. CMake and Ninja come with it.
-- No other dependencies: Dear ImGui, MinHook and nlohmann/json are included in `third_party/`.
+- No other dependencies: Dear ImGui, MinHook, nlohmann/json and the menu fonts are included in `third_party/`.
 
 The game is 32-bit, so the DLL must be built for **x86**.
 
@@ -43,6 +43,12 @@ Results go to `test_result.txt`.
 | `src/dllmain.cpp`, `src/proxy.cpp`, `src/dinput8.def` | DLL entry, proxy exports to the real `dinput8.dll`, DirectInput hooks |
 | `src/version.*` | game build detection, tool version (`kToolVersion`) |
 | `src/d3d9_hook.*`, `src/menu.*`, `src/input.*` | D3D9 hooks, ImGui menu, keyboard / mouse / gamepad |
+| `src/ui.*`, `src/resources.rc` | menu look: palette, fonts embedded in the DLL, list-row widgets, scaling |
+| `src/devtools.*` | Dev room save protection, the game's debug menu |
+| `src/cutscenes.*`, `src/popups.*` | Skip cutscenes, Skip hints & pop-ups |
+| `src/camera.*` | Unlock camera |
+| `src/timers.*`, `src/speedrun.*` | Runs tab: LiveSplit-rule timers, Speedrun mode, Start / Restart run, PB and sum of best |
+| `src/window_mode.*` | Fullscreen / Borderless / Window and the game restart |
 | `src/ue3/` | UE3 reflection (GNames, GObjects, layouts), ProcessEvent hook and calls, Dev dumps |
 | `src/features.*`, `src/feature_list.cpp`, `src/hotkeys.*` | feature registry, Cheats features, binds and presets |
 | `src/nav*`, `src/realcp.*`, `src/cpsets.*` | Practice tab: missions, checkpoints, positions, shared lists |
@@ -53,9 +59,9 @@ Results go to `test_result.txt`.
 | `src/compat.*` | compatibility report |
 | `src/autorun.*` | test scripts (only run when a `DmCPT_autorun.txt` exists next to the exe) |
 | `src/config.*` | `DmCPracticeTool.json` |
-| `data/missions.json` | built-in checkpoint catalog (embedded into the DLL) |
+| `data/missions.json`, `data/razium.png` | built-in checkpoint catalog and a picture for the About section (embedded into the DLL) |
 | `tests/` | offline test host and save format test |
-| `third_party/` | Dear ImGui 1.91.8, MinHook 1.3.4, nlohmann/json 3.11.3 (see `VERSIONS.txt`) |
+| `third_party/` | Dear ImGui 1.91.8, MinHook 1.3.4, nlohmann/json 3.11.3 (see `VERSIONS.txt`); fonts JetBrains Mono and Barlow Condensed (SIL OFL 1.1, `fonts/OFL_*.txt`) |
 
 ## Adding a game build
 

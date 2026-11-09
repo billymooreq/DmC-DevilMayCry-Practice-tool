@@ -6,7 +6,13 @@
 #include <cmath>
 #include <map>
 
+#include "camera.h"
+#include "cutscenes.h"
+#include "popups.h"
+#include "speedrun.h"
+#include "timers.h"
 #include "damagelog.h"
+#include "devtools.h"
 #include "enemies.h"
 #include "features.h"
 #include "input.h"
@@ -91,8 +97,8 @@ class InfiniteHp : public Feature {
   InfiniteHp() {
     id = "inf_hp";
     name = "Infinite HP";
-    help = "Dante never loses health and cannot die from hits; his health bar stays full. Hits still knock him "
-           "around. Wins over \"One-hit KO on player\".";
+    help = "Dante never loses health and cannot die from hits. Hits still knock him around.\n"
+           "Has priority over One-hit KO on player and Damage taken.";
   }
   bool Enable(const Ctx& c) override {
     // The game's own god mode (Controller.bGodMode): NTCombat_Behaviour.TakeDamage and NTPawn.DealHealthDamage
@@ -141,12 +147,10 @@ class OneHitKoPlayer : public Feature {
   OneHitKoPlayer() {
     id = "ohko_player";
     name = "One-hit KO on player";
-    help = "Any hit that does damage kills Dante, like the Hell and Hell difficulty. Does nothing while "
-           "\"Infinite HP\" is on.";
-    loserTo = "inf_hp";
+    help = "Any hit that does damage kills Dante, like Hell and Hell difficulty.";
+    losesTo = {"inf_hp"};
     params = {{"no_revive", "No Gold Orb revive", 0, 0, 1, "", ParamKind::Toggle, {},
-               "When Dante dies, no Gold Orb is used and he does not come back: straight to the death screen. "
-               "Off: the game uses a Gold Orb if you have one."}};
+               "When Dante dies, no Gold Orb is used: straight to the death screen."}};
   }
   bool Enable(const Ctx& c) override {
     cb_ = GetObj(c.w.pawn, "CombatBehaviour");  // NTCombat_Behaviour.m_DieInOneHit, the game's Hell and Hell flag
@@ -181,8 +185,7 @@ class InfiniteDt : public Feature {
   InfiniteDt() {
     id = "inf_dt";
     name = "Infinite DT";
-    help = "The Devil Trigger gauge stays full and does not drain while Devil Trigger is active. Devil Trigger "
-           "must already be unlocked in your game.";
+    help = "The Devil Trigger gauge stays full and does not drain. Devil Trigger must be unlocked in your game.";
   }
   bool Enable(const Ctx& c) override {
     // DVTriggerComponent.m_bCheatInfinitePoints: the game's own cheat flag, UseTriggerPoints skips the cost.
@@ -226,11 +229,11 @@ class InfiniteGlide : public Feature {
   InfiniteGlide() {
     id = "inf_glide";
     name = "Infinite Glide";
-    help = "Angel Glide / Angel Boost can be used again and again in the air, without landing first.";
+    help = "Angel Glide / Angel Boost again and again in the air, without landing.\n"
+           "Unlimited boosts: Dante still sinks slowly.  Level flight: he keeps his height.";
     params = {{"mode", "Mode", 0, 0, 1, "", ParamKind::Choice, {"Unlimited boosts", "Level flight"},
-               "Unlimited boosts: as many glides and boosts as you like, Dante still sinks slowly while gliding.\n"
-               "Level flight: the same, and Dante keeps his height while gliding. Let go, attack or land to "
-               "leave the glide as usual."}};
+               "Unlimited boosts: Dante still sinks slowly while gliding.\nLevel flight: he keeps his height. "
+               "Let go, attack or land to leave the glide as usual."}};
   }
   bool Enable(const Ctx&) override {
     gliding_ = false;
@@ -307,9 +310,11 @@ class Noclip : public Feature {
   Noclip() {
     id = "noclip";
     name = "Noclip";
-    help = "Fly through walls. WASD to move (relative to the camera), Space up, Ctrl down, Shift faster. "
-           "Gamepad: left stick, RT up, LT down. When you turn it off Dante drops from where he is.";
-    params = {{"speed", "Fly speed", 1.0f, 0.25f, 5.0f, "%.2fx"}};
+    help = "Fly through walls. When you turn it off, Dante drops from where he is.\n"
+           "Keyboard:  W A S D move \u00B7 Space / Ctrl up, down \u00B7 Shift faster\n"
+           "Gamepad:   Left stick move \u00B7 RT / LT up, down";
+    params = {{"speed", "Fly speed", 1.0f, 0.25f, 5.0f, "%.2fx", ParamKind::Slider, {}, "How fast Noclip flies.",
+               0.25f, 50.0f}};
   }
   bool Enable(const Ctx& c) override {
     pawn_ = c.w.pawn;
@@ -394,7 +399,9 @@ class PlayerSpeed : public Feature {
   PlayerSpeed() {
     id = "player_speed";
     name = "Player speed";
-    help = "Speeds up or slows down only Dante (moves, attacks, animations). Stacks with Game speed.";
+    group = Group::Speed;
+    autoOn = true;
+    help = "Speeds up or slows down only Dante. Stacks with Game speed.";
     params = {{"mult", "Speed", 1.0f, 0.1f, 3.0f, "%.1fx"}};
   }
   bool Enable(const Ctx& c) override {
@@ -416,7 +423,10 @@ class DamageTaken : public Feature {
   DamageTaken() {
     id = "dmg_taken";
     name = "Damage taken";
-    help = "Multiplies the damage Dante takes from every hit. 0x = no damage, 2x = double.";
+    group = Group::Damage;
+    autoOn = true;
+    losesTo = {"inf_hp"};
+    help = "Multiplies the damage Dante takes. 0\u00D7 = no damage, 2\u00D7 = double.";
     params = {{"mult", "Multiplier", 1.0f, 0.0f, 10.0f, "%.1fx"}};
   }
   bool Enable(const Ctx&) override {
@@ -439,9 +449,9 @@ class OneHitKills : public Feature {
     id = "ohk_enemies";
     name = "One-hit kills";
     group = Group::Enemies;
-    help = "Any damaging hit from Dante kills the enemy. Shields, armour and story-protected bosses still work "
-           "as in the game. Does nothing while \"Infinite enemy HP\" is on.";
-    loserTo = "enemy_inf_hp";
+    help = "Any damaging hit from Dante kills the enemy. Shields and story-protected bosses still work as in the "
+           "game.\nHas priority over Damage dealt.";
+    losesTo = {"enemy_inf_hp"};
   }
   bool Enable(const Ctx&) override {
     g_dmg.Resolve();
@@ -460,8 +470,10 @@ class DamageDealt : public Feature {
   DamageDealt() {
     id = "dmg_dealt";
     name = "Damage dealt";
-    group = Group::Enemies;
-    help = "Multiplies the damage Dante does to enemies. 0x = no damage, 2x = double.";
+    group = Group::Damage;
+    autoOn = true;
+    losesTo = {"ohk_enemies"};
+    help = "Multiplies the damage Dante does to enemies. 0\u00D7 = no damage, 2\u00D7 = double.";
     params = {{"mult", "Multiplier", 1.0f, 0.0f, 10.0f, "%.1fx"}};
   }
   bool Enable(const Ctx&) override {
@@ -498,7 +510,8 @@ class EnemySpeed : public Feature {
   EnemySpeed() {
     id = "enemy_speed";
     name = "Enemy speed";
-    group = Group::Enemies;
+    group = Group::Speed;
+    autoOn = true;
     help = "Speeds up or slows down only the enemies. Stacks with Game speed.";
     params = {{"mult", "Speed", 1.0f, 0.1f, 3.0f, "%.1fx"}};
   }
@@ -526,9 +539,10 @@ class GameSpeed : public Feature {
   GameSpeed() {
     id = "game_speed";
     name = "Game speed";
-    group = Group::Game;
-    help = "Speeds up or slows down the whole game (Dante, enemies, effects). Player speed and Enemy speed are "
-           "applied on top of it.";
+    group = Group::Speed;
+    autoOn = true;
+    help = "Speeds up or slows down the whole game. Stacks with Player and Enemy speed.\n"
+           "The slider goes to 10\u00D7; click the number to type any value.";
     params = {{"mult", "Speed", 1.0f, 0.1f, 10.0f, "%.1fx"}};
   }
   bool Enable(const Ctx& c) override {
@@ -553,12 +567,18 @@ std::vector<Feature*> CreateVisualFeatures();  // visual_features.cpp
 
 std::vector<Feature*> CreateAll() {
   // Menu order inside each group: most used first.
-  std::vector<Feature*> all = {new InfiniteHp,     new InfiniteDt,  new InfiniteGlide, new Noclip,
-                               new OneHitKoPlayer, new DamageTaken, new PlayerSpeed,   new OneHitKills,
-                               new DamageDealt,    new EnemySpeed,  new GameSpeed};
+  // Menu order (Cheats tab; the Hotkeys tab sorts by group, keeping this order inside a group).
+  std::vector<Feature*> all = {new InfiniteHp,  new OneHitKoPlayer, new InfiniteDt,  new InfiniteGlide,
+                               new Noclip,      new OneHitKills,    new DamageDealt, new DamageTaken,
+                               new GameSpeed,   new PlayerSpeed,    new EnemySpeed};
+  for (Feature* f : camera::CreateFeatures()) all.push_back(f);
+  all.push_back(cutscenes::CreateFeature());
+  all.push_back(popups::CreateFeature());
   for (Feature* f : CreateNavFeatures()) all.push_back(f);
   for (Feature* f : CreateEnemyFeatures()) all.push_back(f);
   for (Feature* f : CreateVisualFeatures()) all.push_back(f);
+  for (Feature* f : timers::CreateFeatures()) all.push_back(f);
+  for (Feature* f : speedrun::CreateFeatures()) all.push_back(f);
   return all;
 }
 
@@ -568,6 +588,9 @@ void SetGlideTrace(bool on) { g_glideTrace = on; }
 void OnGameEvent(void* self, void* fn, void* parms) {
   if (!FeaturesAllowed()) return;
   if (visuals::WantsEvents()) visuals::OnEvent((uintptr_t)self, (uintptr_t)fn, parms, false);
+  cutscenes::OnEvent((uintptr_t)self, (uintptr_t)fn);
+  popups::OnEvent((uintptr_t)self, (uintptr_t)fn);
+  timers::OnEvent((uintptr_t)self, (uintptr_t)fn);
   if ((!g_dmg.any && !g_hitLog && !damagelog::On()) || !parms) return;
   if (!g_dmg.fnDV) g_dmg.Resolve();
   uintptr_t f = (uintptr_t)fn;
@@ -577,6 +600,7 @@ void OnGameEvent(void* self, void* fn, void* parms) {
 
 // After the game processed a hit: the victim's health and the damage after armour (damage log).
 void OnGameEventAfter(void* self, void* fn, void* parms) {
+  devtools::AfterEvent(self, fn);
   if (!FeaturesAllowed()) return;
   enemies::OnEventAfter((uintptr_t)self, (uintptr_t)fn);
   if (visuals::WantsEvents()) visuals::OnEvent((uintptr_t)self, (uintptr_t)fn, parms, true);

@@ -16,8 +16,8 @@ next to the exe (see "Files" below).
 ## Startup
 
 1. **Game build detection** (`src/version.cpp`) — reads the PE header of the main module: `TimeDateStamp` and
-   `SizeOfImage` are compared with a table of known builds. No hashing at startup. An unknown build keeps the menu
-   working but locks every feature that changes the game.
+   `SizeOfImage` are compared with a table of known builds. No hashing at startup. Since v0.11 an unknown build
+   locks nothing: the menu shows a yellow warning, and Unlock / Import ask for confirmation with a note.
 2. **Hooks** — Win32 (`WndProc`, cursor), DirectInput (`GetDeviceState`/`GetDeviceData`, muted while the menu is
    open), XInput, and Direct3D 9.
 3. **UE3 reflection** initialises in the background as soon as the game has loaded its names and objects.
@@ -80,7 +80,18 @@ health right after the call returns.
 - Visuals (`src/visuals.cpp`): body shapes from the skeletal mesh physics asset, attack zones from the active
   strike processes, Kismet touch triggers classified by walking their script links, blocking volumes. Lines can be
   hidden behind the level geometry using the scene depth buffer (drawn from the `Clear` hook just before the game
-  clears it).
+  clears it). Explosions and damage zones are drawn from the game's own explosion / radial damager parameters,
+  level hazards from pain volumes.
+- Skip cutscenes calls the game's own cutscene cancel (the same path as its Skip button) while a cutscene plays.
+  Skip hints & pop-ups presses the game's own OK callback of the item screen and hides tutorial hints.
+- Timers (`src/timers.cpp`) sample the same two values the community LiveSplit autosplitter reads — the loading flag
+  of the game's system UI and the map name (`DVGameEngine.TransitionDescription`) — every 1 ms, and apply the
+  autosplitter's start / split / reset rules. The loading flag is found through the signature of the game function
+  that reads it, so it works on v1.3 and v1.0. The run ends at Vergil's death (`DVPawn_Vergil.SetDead` in
+  Mission 20).
+- Window mode (`src/window_mode.cpp`): in `DllMain`, before the game creates its window, a few imports of the exe are
+  redirected (`Direct3DCreate9`, `ChangeDisplaySettingsW`, `SetWindowPos`, `SetWindowLongW`, `ShowWindow`) so the
+  device is created windowed. Picking a mode restarts the game through a hidden helper process.
 
 ## Unlocks
 
@@ -114,7 +125,7 @@ A zip with `manifest.json` (`format: "dmcpt-checkpoint-set"`, `version`, `name`,
 
 ## Unknown game builds and the compatibility report
 
-On an unknown build the menu works, everything that changes the game is locked, and the Dev tab is shown. Settings
+On an unknown build everything works (with a yellow warning in the menu header), and the Dev tab is shown. Settings
 → **Create report** writes `DmCPT_compat_report.txt` (read-only, no personal data): exe size, SHA-256,
 FileVersion, TimeDateStamp, SizeOfImage, sections; every signature with its number of matches (counted in the exe
 file on disk); whether GNames/GObjects and the layout were found; and the classes / functions the features use.

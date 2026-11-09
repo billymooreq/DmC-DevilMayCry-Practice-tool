@@ -57,6 +57,10 @@ int ActiveSlotNow();  // the game's active slot, 0-based, -1 unknown
 bool WriteSlotFile(int slot, savefile::Kind k, const savefile::Bytes& enc, std::string* err);
 bool ReadSlotFile(int slot, savefile::Kind k, savefile::Bytes& enc);
 bool ReloadSlotNow(int slot, std::string* err);  // main menu: the game reads the slot from disk again
+// Title screen ("Press Start", slot status 0): DVMapInfo.BeginSignIn, what Start does there (the player's profile
+// is signed in, the slot screen opens). A slot must not be loaded before that: LoadSaveSlot crashes the game on
+// the title screen. Returns true at once when a slot screen / save is up already. Worker threads only.
+bool SignInNow(std::string* err);
 
 bool Busy();
 std::vector<std::string> Report();

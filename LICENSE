@@ -25,3 +25,5 @@ Third-party libraries in third_party/ are under their own licenses:
   Dear ImGui     - MIT            (third_party/imgui/LICENSE.txt)
   MinHook        - BSD 2-Clause   (third_party/minhook/LICENSE.txt)
   nlohmann/json  - MIT            (third_party/nlohmann/LICENSE.MIT)
+  JetBrains Mono - SIL Open Font License 1.1 (third_party/fonts/OFL_JetBrainsMono.txt)
+  Barlow Condensed - SIL Open Font License 1.1 (third_party/fonts/OFL_BarlowCondensed.txt)

@@ -136,6 +136,8 @@ std::string Text(const Bind& b) {
   return k + p;
 }
 
+bool Held(const Bind& b) { return !b.Empty() && Satisfied(b, HeldMods(), PadButtons()); }
+
 bool Overlaps(const Bind& a, const Bind& b) {
   return (a.vk && a.vk == b.vk && a.mods == b.mods) || (a.pad && a.pad == b.pad);
 }

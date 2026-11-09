@@ -2,13 +2,22 @@
 
 #include <windows.h>
 
+#include <timeapi.h>
+
 #include <fstream>
+#include <map>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "compat.h"
 #include "config.h"
+#include "camera.h"
+#include "cutscenes.h"
+#include "popups.h"
+#include "speedrun.h"
+#include "timers.h"
 #include "d3d9_hook.h"
 #include "features.h"
 #include "hotkeys.h"
@@ -16,9 +25,11 @@
 #include "proxy.h"
 #include "log.h"
 #include "menu.h"
+#include "version.h"
 #include "nav.h"
 #include "cpsets.h"
 #include "damagelog.h"
+#include "devtools.h"
 #include "enemies.h"
 #include "state.h"
 #include "saveslots.h"
@@ -29,6 +40,7 @@
 #include "unlock.h"
 #include "util.h"
 #include "visuals.h"
+#include "window_mode.h"
 
 namespace autorun {
 namespace {
@@ -92,6 +104,20 @@ bool ResolvePath(const std::string& path, uintptr_t& obj, std::string& last) {
   obj = r == "pawn" ? w.pawn : r == "pc" ? w.pc : r == "world" ? w.world : r == "game" ? w.gameInfo
       : r == "cheat" ? w.cheat : r == "engine" ? w.engine : 0;
   if (r.rfind("0x", 0) == 0) obj = (uintptr_t)strtoul(r.c_str(), nullptr, 16);
+  if (r.rfind("find:", 0) == 0) {  // find:<Class>:<Name>[:<map package>] - first live object that matches
+    std::vector<std::string> p;
+    for (size_t s = 5, e; s <= r.size(); s = e + 1) {
+      e = r.find(':', s);
+      if (e == std::string::npos) e = r.size();
+      p.push_back(r.substr(s, e - s));
+    }
+    for (int i = 0, n = ue3::NumObjects(); i < n && !obj && p.size() >= 2; ++i) {
+      uintptr_t o = ue3::Object(i);
+      if (!o || ue3::ClassNameOf(o) != p[0] || ue3::ObjName(o) != p[1]) continue;
+      if (p.size() > 2 && game::TopPackage(o) != p[2]) continue;
+      obj = o;
+    }
+  }
   if (!obj) return false;
   for (size_t i = 1; i + 1 < seg.size(); ++i) {
     obj = game::GetObj(obj, seg[i].c_str());
@@ -136,6 +162,24 @@ bool SetValue(uintptr_t obj, const std::string& name, const std::string& v) {
   if (c == "ByteProperty") return game::SetByte(obj, name.c_str(), (uint8_t)atoi(v.c_str()));
   if (c == "BoolProperty") return game::SetBool(obj, name.c_str(), v == "1" || v == "true");
   return false;
+}
+
+// The property of obj's class chain that covers byte offset off: "Class.Field +0xNN Type".
+std::string FieldAt(uintptr_t obj, int off) {
+  for (uintptr_t s = ue3::ObjClass(obj); s; s = ue3::StructSuper(s)) {
+    int guard = 0;
+    for (uintptr_t f = ue3::StructChildren(s); f && guard < 10000; f = ue3::FieldNext(f), ++guard) {
+      std::string c = ue3::ClassNameOf(f);
+      if (c.size() < 8 || c.compare(c.size() - 8, 8, "Property") != 0) continue;
+      int o = ue3::PropOffset(f), sz = ue3::PropElementSize(f) * std::max(1, ue3::PropArrayDim(f));
+      if (off >= o && off < o + sz) {
+        char b[64];
+        snprintf(b, sizeof b, " +0x%X (size 0x%X) ", o, sz);
+        return ue3::ObjName(s) + "." + ue3::ObjName(f) + b + c;
+      }
+    }
+  }
+  return "<none>";
 }
 
 // Calls obj.func with positional args converted by parameter type.
@@ -366,6 +410,17 @@ void Exec(const std::vector<std::string>& cmds) {
       if (a.size() >= 3) features::SetParam(a[0], atoi(a[1].c_str()), (float)atof(a[2].c_str()));
     } else if (cmd == "trigger") {
       features::Trigger(arg);
+    } else if (cmd == "cutscenes") {  // cutscenes [verbose 0|1]: Skip cutscenes counters, the last cutscenes seen
+      if (arg.rfind("verbose", 0) == 0) cutscenes::SetVerbose(arg.find('1') != std::string::npos);
+      for (const std::string& l : cutscenes::DebugLines()) LOG("autorun: cutscenes %s", l.c_str());
+    } else if (cmd == "cutscene_probe") {  // cutscene_probe: matinees / Bink actions playing now
+      std::vector<std::string> l = engine::OnGame<std::vector<std::string>>([] { return cutscenes::Probe(); });
+      for (const std::string& x : l) LOG("autorun: cutscene %s", x.c_str());
+    } else if (cmd == "devtools") {  // devtools: dev room / debug menu counters
+      nav::Snapshot ns = nav::Now();
+      LOG("autorun: devtools debug_menu %d available %d opened %d unlock_all_blocked %d dev_room %d slot_status %d",
+          devtools::DebugMenuOn(), devtools::DebugMenuAvailable(), devtools::DebugMenuOpened(),
+          devtools::UnlockAllBlocked(), ns.devRoom, ns.slotStatus);
     } else if (cmd == "features") {
       LOG("autorun: features:\n%s", features::DebugText().c_str());
     } else if (cmd == "bind") {  // bind <feature id> <vk>: keyboard bind as if set in the menu
@@ -425,6 +480,198 @@ void Exec(const std::vector<std::string>& cmds) {
         return ue3::FullName(o) + " +" + a[1] + " = " + a[2];
       });
       LOG("autorun: poke %s", res.c_str());
+    } else if (cmd == "ptr") {  // ptr <rva hex> [off hex]...: a pointer chain from the exe (LiveSplit style)
+      std::vector<std::string> a = Words(arg);
+      std::string res = engine::OnGame<std::string>([a] {
+        if (a.empty()) return std::string("usage: ptr <rva> [offsets]");
+        uintptr_t base = (uintptr_t)GetModuleHandleW(nullptr);
+        uintptr_t addr = base + strtoul(a[0].c_str(), nullptr, 16);
+        std::string s = "exe+" + a[0] + " = " + util::Hex(addr);
+        uintptr_t p = util::ReadOr<uintptr_t>(addr);
+        for (size_t i = 1; i < a.size(); ++i) {
+          int off = (int)strtoul(a[i].c_str(), nullptr, 16);
+          s += "\n    -> " + util::Hex(p) + (ue3::IsObject(p) ? " " + ue3::FullName(p) : std::string(" (not a UObject)"));
+          if (ue3::IsObject(p)) s += " ; +" + a[i] + " = field " + FieldAt(p, off);
+          if (i + 1 < a.size()) p = util::ReadOr<uintptr_t>(p + off);
+          else {
+            char b[200];
+            int iv = util::ReadOr<int>(p + off);
+            snprintf(b, sizeof b, "\n    value int %d (0x%X)", iv, (unsigned)iv);
+            s += b;
+            uintptr_t sp = util::ReadOr<uintptr_t>(p + off);
+            s += " | as wide string \"" + util::WideToUtf8(util::ReadWString(sp, 60)) + "\"";
+          }
+        }
+        return s;
+      });
+      LOG("autorun: ptr %s", res.c_str());
+    } else if (cmd == "watchload") {  // watchload <seconds>: log changes of the LiveSplit loading flag / map string
+      double secs = arg.empty() ? 60 : atof(arg.c_str());
+      std::thread([secs] {
+        uintptr_t base = (uintptr_t)GetModuleHandleW(nullptr);
+        LARGE_INTEGER fq, t0, t;
+        QueryPerformanceFrequency(&fq);
+        QueryPerformanceCounter(&t0);
+        timeBeginPeriod(1);
+        int lastFlag = -12345;
+        std::wstring lastMap = L"<start>";
+        for (;;) {
+          QueryPerformanceCounter(&t);
+          double ms = (t.QuadPart - t0.QuadPart) * 1000.0 / fq.QuadPart;
+          if (ms > secs * 1000) break;
+          uintptr_t g = util::ReadOr<uintptr_t>(base + 0x27521C0);
+          int flag = g ? util::ReadOr<int>(g + 0x5B4, -1) : -2;
+          uintptr_t eng = util::ReadOr<uintptr_t>(base + 0x272C328);
+          uintptr_t sp = eng ? util::ReadOr<uintptr_t>(eng + 0x560) : 0;
+          std::wstring map = sp ? util::ReadWString(sp, 64) : L"";
+          if (flag != lastFlag || map != lastMap) {
+            LOG("autorun: watchload %.1f ms flag %d map '%s'", ms, flag, util::WideToUtf8(map).c_str());
+            lastFlag = flag;
+            lastMap = map;
+          }
+          Sleep(1);
+        }
+        timeEndPeriod(1);
+        LOG("autorun: watchload done");
+      }).detach();
+    } else if (cmd == "fnaddr") {  // fnaddr <Class> <Func>: native implementation of a UFunction (RVA, static base)
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 2) {
+        uintptr_t f = ue3::FindObject("Function", a[1].c_str(), a[0].c_str());
+        uintptr_t p = f ? ue3::FuncNativePtr(f) : 0;
+        uintptr_t base = (uintptr_t)GetModuleHandleW(nullptr);
+        LOG("autorun: fnaddr %s.%s = %s func %s (static VA 0x%08X) flags 0x%X", a[0].c_str(), a[1].c_str(),
+            util::Hex(f).c_str(), util::Hex(p).c_str(), (unsigned)(p ? p - base + 0x400000 : 0),
+            f ? ue3::FuncFlags(f) : 0);
+      }
+    } else if (cmd == "timers") {  // timers: LiveSplit-rules run, mission, IGT, segment (state)
+      for (const std::string& x : timers::DebugLines()) LOG("autorun: timers %s", x.c_str());
+    } else if (cmd == "speedrun") {  // speedrun [pick <slot 1-5> <difficulty 0-6> <mission id>]: state / the run to start
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 4 && a[0] == "pick") {
+        speedrun::Pick p;
+        p.slot = atoi(a[1].c_str()) - 1;
+        p.difficulty = atoi(a[2].c_str());
+        p.mission = a[3];
+        speedrun::SetPick(p);
+      }
+      for (const std::string& x : speedrun::DebugLines()) LOG("autorun: speedrun %s", x.c_str());
+    } else if (cmd == "vergilprobe") {  // vergilprobe <s>: research for the LiveSplit end split (#16) - every 0.1 s
+      // the DVPawn_Vergil pawns (health, state, in the pawn list, deleted), logged on change; the offsets once
+      int secs = arg.empty() ? 600 : atoi(arg.c_str());
+      LOG("autorun: vergilprobe %s", engine::OnGame<std::string>([] {
+            const game::World& w = game::W();
+            uintptr_t base = (uintptr_t)GetModuleHandleW(nullptr);
+            auto off = [](uintptr_t o, const char* n) { return o ? game::FieldOf(o, n).off : -1; };
+            uintptr_t lp = 0;
+            int gp = off(w.engine, "GamePlayers");
+            ue3::TArrayRaw a{};
+            if (gp >= 0 && util::Read(w.engine + gp, a) && a.num > 0) lp = util::ReadOr<uintptr_t>(a.data);
+            char b[600];
+            snprintf(b, sizeof b,
+                     "offsets: engine %08X [exe+0x272C328]=%08X | Engine.GamePlayers +0x%X | LocalPlayer %08X .Actor +0x%X "
+                     "(pc %08X) | Actor.WorldInfo +0x%X (wi %08X) | WorldInfo.PawnList +0x%X | Pawn.NextPawn +0x%X | "
+                     "NTPawn.m_Health +0x%X | Pawn.Controller +0x%X | Actor.bDeleteMe +0x%X | names +0x%X objs +0x%X",
+                     (unsigned)w.engine, (unsigned)util::ReadOr<uintptr_t>(base + 0x272C328), gp, (unsigned)lp,
+                     off(lp, "Actor"), (unsigned)w.pc, off(w.pc, "WorldInfo"), (unsigned)w.world,
+                     off(w.world, "PawnList"), off(w.pawn, "NextPawn"), off(w.pawn, "m_Health"),
+                     off(w.pawn, "Controller"), off(w.pawn, "bDeleteMe"), (unsigned)(ue3::L().gnames - base),
+                     (unsigned)(ue3::L().gobjects - base));
+            return std::string(b);
+          }).c_str());
+      std::map<uintptr_t, std::string> last;
+      std::vector<uintptr_t> known;  // DVPawn_Vergil objects (full scan once a second, by class pointer)
+      bool frameFound = false;
+      for (int t = 0; t < secs * 10; ++t) {
+        struct P {
+          uintptr_t p;
+          std::string line;
+        };
+        std::vector<P> now = engine::OnGame<std::vector<P>>(
+            [&frameFound, &known, t] {
+              std::vector<P> out;
+              const game::World& w = game::W();
+              std::set<uintptr_t> inList;
+              int pl = w.world ? game::FieldOf(w.world, "PawnList").off : -1;
+              uintptr_t p = pl >= 0 ? util::ReadOr<uintptr_t>(w.world + pl) : 0;
+              for (int guard = 0; p && guard < 256; ++guard) {
+                inList.insert(p);
+                int np = game::FieldOf(p, "NextPawn").off;
+                p = np >= 0 ? util::ReadOr<uintptr_t>(p + np) : 0;
+              }
+              static uintptr_t cls = 0;
+              if (!cls) cls = ue3::FindObject("Class", "DVPawn_Vergil");
+              if (t % 10 == 0 && cls) {
+                known.clear();
+                for (int i = 0, n = ue3::NumObjects(); i < n; ++i) {
+                  uintptr_t o = ue3::Object(i);
+                  if (o && ue3::ObjClass(o) == cls && ue3::ObjName(o).rfind("Default__", 0) != 0) known.push_back(o);
+                }
+              }
+              for (uintptr_t o : known) {
+                if (!ue3::IsObject(o) || ue3::ObjClass(o) != cls) continue;
+                std::string state = "?";
+                engine::Call c(o, "GetStateName");
+                if (c.Invoke() && c.RetData()) state = ue3::NameOf(*reinterpret_cast<const ue3::FNameRaw*>(c.RetData()));
+                if (!frameFound && state != "?" && state != "None") {
+                  for (int so = 0; so < 0x38 && !frameFound; so += 4) {
+                    uintptr_t sf = util::ReadOr<uintptr_t>(o + so);
+                    if (!sf) continue;
+                    for (int j = 0; j < 0x60; j += 4) {
+                      uintptr_t q = util::ReadOr<uintptr_t>(sf + j);
+                      if (ue3::IsObject(q) && ue3::ObjName(q) == state && ue3::ClassNameOf(q) == "State") {
+                        LOG("autorun: vergilprobe state '%s' = [[obj+0x%X]+0x%X]", state.c_str(), so, j);
+                        frameFound = true;
+                        break;
+                      }
+                    }
+                  }
+                }
+                static bool offsLogged = false;
+                if (!offsLogged) {
+                  offsLogged = true;
+                  LOG("autorun: vergilprobe pawn offsets: Pawn.NextPawn +0x%X Pawn.Controller +0x%X Actor.bDeleteMe +0x%X "
+                      "NTPawn.m_Health +0x%X NTPawn.m_IsDestroyed +0x%X (bit mask in the dump)",
+                      game::FieldOf(o, "NextPawn").off, game::FieldOf(o, "Controller").off,
+                      game::FieldOf(o, "bDeleteMe").off, game::FieldOf(o, "m_Health").off,
+                      game::FieldOf(o, "m_IsDestroyed").off);
+                }
+                uintptr_t ctrl = game::GetObj(o, "Controller");
+                char b[300];
+                snprintf(b, sizeof b, "%s hp %.0f/%.0f state %s list %d deleteMe %d destroyed %d ctrl %s",
+                         ue3::ObjName(o).c_str(), game::GetFloat(o, "m_Health", -1), game::GetFloat(o, "m_MaxHealth", -1),
+                         state.c_str(), (int)inList.count(o), (int)game::GetBool(o, "bDeleteMe"),
+                         (int)game::GetBool(o, "m_IsDestroyed"), ctrl ? ue3::ObjName(ctrl).c_str() : "-");
+                out.push_back({o, b});
+              }
+              return out;
+            },
+            3000);
+        std::map<uintptr_t, std::string> cur;
+        for (const P& x : now) {
+          cur[x.p] = x.line;
+          if (last[x.p] != x.line) LOG("autorun: vergilprobe %s", x.line.c_str());
+        }
+        for (auto& [p, l] : last)
+          if (!l.empty() && !cur.count(p)) LOG("autorun: vergilprobe %08X gone from GObjects", (unsigned)p);
+        last = cur;
+        Sleep(100);
+      }
+      LOG("autorun: vergilprobe done");
+    } else if (cmd == "winmode") {  // winmode fullscreen|borderless|windowed: as if picked in Settings (restarts)
+      int m = winmode::ModeFromKey(arg.c_str());
+      LOG("autorun: winmode %s (now %s)", m < 0 ? "UNKNOWN" : winmode::ModeKey(m), winmode::ModeKey(winmode::Current()));
+      if (m >= 0) {
+        g_cfg.windowMode = m;
+        winmode::RestartGame();
+      }
+    } else if (cmd == "timers_end") {  // timers_end: end the run now (as at Vergil's defeat), tests only
+      timers::DebugFinish();
+    } else if (cmd == "popups") {  // popups: Skip hints & pop-ups counters
+      for (const std::string& x : popups::DebugLines()) LOG("autorun: popups %s", x.c_str());
+    } else if (cmd == "cam") {  // cam: camera controller, camera stack, chase settings
+      std::vector<std::string> l = engine::OnGame<std::vector<std::string>>([] { return camera::DebugLines(); });
+      for (const std::string& x : l) LOG("autorun: cam %s", x.c_str());
     } else if (cmd == "sendkey") {  // sendkey <vk> [seconds]: real key via SendInput (the game must be in front)
       std::vector<std::string> a = Words(arg);
       UINT vk = a.empty() ? 0 : (UINT)strtoul(a[0].c_str(), nullptr, 0);
@@ -443,6 +690,25 @@ void Exec(const std::vector<std::string>& cmds) {
       LOG("autorun: wait_mission -> %s (%s)", ok ? "in mission" : "TIMEOUT", features::Status().map.c_str());
     } else if (cmd == "overlay_force") {  // tests only: show the label without a cheat
       features::ForceOverlay();
+    } else if (cmd == "ui_win") {  // ui_win x y w h: menu window as fractions of the screen
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 4)
+        menu::SetWindow((float)atof(a[0].c_str()), (float)atof(a[1].c_str()), (float)atof(a[2].c_str()),
+                        (float)atof(a[3].c_str()));
+    } else if (cmd == "ui_set") {  // ui_set pause|hints|hidelog|dev|unknown 0|1: menu settings for tests
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 2) {
+        bool on = atoi(a[1].c_str()) != 0;
+        if (a[0] == "pause") g_cfg.pauseInMenu = on;
+        else if (a[0] == "hints") g_cfg.hideHints = !on;
+        else if (a[0] == "hidelog") damagelog::SetHideInGame(on);
+        else if (a[0] == "dev") g_cfg.showDevTab = on;
+        else if (a[0] == "debugmenu") devtools::SetDebugMenu(on);
+        else if (a[0] == "unknown") SetPretendUnknown(on);
+        LOG("autorun: ui_set %s %d", a[0].c_str(), on);
+      }
+    } else if (cmd == "dmglog_test") {  // dmglog_test: adds sample rows (marked "TEST") to check how the log looks
+      damagelog::AddTestRows();
     } else if (cmd == "ui_details") {  // ui_details 0|1: open every "Details" block on the Saves tab
       menu::ForceDetails(atoi(arg.c_str()) != 0);
     } else if (cmd == "ui_popup") {  // ui_popup rename|import <import entry index, 0-based> | close
@@ -584,6 +850,7 @@ void Exec(const std::vector<std::string>& cmds) {
           sl.selMission = v;
           for (size_t i = 0; i < nav::Missions().size(); ++i)
             if (nav::Missions()[i].id == a[1]) sl.selMission = (int)i;
+          if (a[1] == "dev") sl.selMission = -1;  // the first dev room
         } else if (a[0] == "difficulty") sl.selDifficulty = v;
         else if (a[0] == "mpoint") sl.selPoint = v;
         else if (a[0] == "slot") sl.slot = v;
@@ -599,7 +866,10 @@ void Exec(const std::vector<std::string>& cmds) {
         if (a[0] == "count") s.count = atoi(a[1].c_str());
         if (a[0] == "where") s.where = atoi(a[1].c_str());
         if (a[0] == "dist") s.distance = (float)atof(a[1].c_str());
-        if (a[0] == "slot") s.posSlot = atoi(a[1].c_str());
+        if (a[0] == "slot") {  // enemy position as shown (4..6); 0..2 = the same positions counted from 0
+          int v = atoi(a[1].c_str());
+          s.posSlot = v >= nav::kPosSlots + 1 ? v - 1 : v + nav::kPosSlots;
+        }
         enemies::SetSel(s);
         s = enemies::GetSel();
         LOG("autorun: enemy_sel %s x%d where %d dist %.1f slot %d", s.kind.c_str(), s.count, s.where, s.distance,
@@ -623,6 +893,29 @@ void Exec(const std::vector<std::string>& cmds) {
       Sleep((DWORD)(sec * 1000));
       double fps = (engine::FrameCount() - f0) * 1000.0 / (double)(GetTickCount64() - t0);
       LOG("autorun: fps %.1f over %.1f s", fps, sec);
+    } else if (cmd == "area_test") {  // area_test <params name> <dx> <dz> <seconds>: hits on Dante from it
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 3) {
+        std::string nm = a[0];
+        float dx = (float)atof(a[1].c_str()), dz = (float)atof(a[2].c_str());
+        std::string r = engine::OnGame<std::string>([nm, dx, dz] { return visuals::AreaTest(nm, dx, dz); });
+        LOG("autorun: area_test %s", r.c_str());
+        Sleep((DWORD)((a.size() > 3 ? atof(a[3].c_str()) : 2.0) * 1000));
+        LOG("autorun: area_test result: %s", engine::OnGame<std::string>([] { return visuals::AreaTestResult(); }).c_str());
+      }
+    } else if (cmd == "wait_vis") {  // wait_vis strikes|areas|any <seconds>: until Visuals draws such a shape
+      std::vector<std::string> a = Words(arg);
+      std::string what = a.empty() ? "any" : a[0];
+      double sec = a.size() > 1 ? atof(a[1].c_str()) : 10.0;
+      ULONGLONG t0 = GetTickCount64();
+      bool ok = false;
+      while (!ok && GetTickCount64() - t0 < sec * 1000) {
+        visuals::Stats st = visuals::GetStats();
+        ok = what == "strikes" ? st.strikes > 0 : what == "areas" ? st.areas > 0 : st.strikes + st.areas > 0;
+        if (!ok) Sleep(15);
+      }
+      LOG("autorun: wait_vis %s -> %s after %.2f s", what.c_str(), ok ? "seen" : "timeout",
+          (GetTickCount64() - t0) / 1000.0);
     } else if (cmd == "dmglog_clear") {
       damagelog::Clear();
     } else if (cmd == "dmglog_merge") {

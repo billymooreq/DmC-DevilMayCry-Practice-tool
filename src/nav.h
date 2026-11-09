@@ -65,9 +65,19 @@ bool RenameMission(int mission, const std::string& name);
 bool ResetMission(int mission);                   // back to the built-in name and list of this mission
 bool Edited(int mission);                         // name / order / points differ from the built-in list
 
+// ---- developers' test maps in Mission select (listed before the missions). Selection.selMission < 0 picks one:
+// -1 = DevRooms()[0]. Only maps checked in the game are here (research: docs/debug.md).
+struct DevRoom {
+  const char* map;   // "Combat"
+  const char* name;  // "Dev room"
+};
+const std::vector<DevRoom>& DevRooms();
+int FindDevRoom(const std::string& map);  // case-insensitive, -1
+
 constexpr int kDifficulties = 7;
 const char* DifficultyName(int mode);  // 0 Human .. 6 Hell and Hell
-constexpr int kPosSlots = 3;
+constexpr int kPosSlots = 3;     // Dante's positions 1-3 (Practice tab)
+constexpr int kAllPosSlots = 6;  // + enemy positions 4-6 (Enemies tab: spawn there); all kept until the map changes
 
 // ---- state for the menu (any thread)
 struct Snapshot {
@@ -78,13 +88,15 @@ struct Snapshot {
   bool busy = false;      // a load we started is not finished yet
   std::string map;
   int missionIndex = -1;  // into Missions()
+  int devRoom = -1;       // into DevRooms() when Dante is in one
+  int slotStatus = -1;    // main menu: DVSaveManager.GetActiveSlotStatus (3/4 = a save slot is loaded)
   int difficulty = -1;    // current difficulty mode 0..6 (-1 unknown)
-  bool slot[kPosSlots] = {};
+  bool slot[kAllPosSlots] = {};
 };
 Snapshot Now();
 
 // Why an action cannot run now ("" = it can). Player-facing, short ("in a mission only", "cutscene"...).
-enum class Action { Restart, LoadCheckpoint, MissionSelect, Teleport, SavePos, LoadPos, Keep };
+enum class Action { Restart, LoadCheckpoint, MissionSelect, Teleport, SavePos, LoadPos, Keep, DevRoom };
 std::string Blocked(Action a, int slot = 0);
 
 // ---- what the player picked in the menu (any thread; saved in DmCPracticeTool.json). Binds and presets use the
@@ -96,7 +108,7 @@ struct Selection {
   int selDifficulty = 0;   // 0..6
   int selPoint = 0;        // 0 = mission start
   int slot = 0;            // position slot for Save/Load position buttons
-  bool useReal = true;     // load kept real checkpoints (realcp) when a point has one
+  bool useReal = true;     // always: a created checkpoint loads like Continue (the old switch is ignored)
 };
 Selection GetSel();
 void SetSel(const Selection& s);
@@ -108,9 +120,14 @@ nlohmann::json SaveJson();
 void OnFrame(const game::World& w);  // every frame, before the actions
 void RestartMission(const game::World& w);
 void LoadPoint(const game::World& w, int point);  // checkpoint / start of the current mission
-void MissionSelect(const game::World& w, int mission, int difficulty, int point);
+// ownCheckpoints: a point with a checkpoint the player created loads that one (Continue); false = always the
+// level's own start (Timers > Speedrun "Start run").
+void MissionSelect(const game::World& w, int mission, int difficulty, int point, bool ownCheckpoints = true);
+// Leaves the mission for the game's main menu ("open mainmenu_startup", the front-end map). Game thread.
+bool OpenMainMenu(const game::World& w);
+void StartDevRoom(const game::World& w, int room, int difficulty);
 void Teleport(const game::World& w, int point);
-void SavePos(const game::World& w, int slot);
+void SavePos(const game::World& w, int slot);  // 0-2 Dante's, 3-5 enemy positions
 void LoadPos(const game::World& w, int slot);
 bool SavedPosition(int slot, game::Vec* loc, int* yaw);  // game thread: what Save position stored (enemy spawn)
 

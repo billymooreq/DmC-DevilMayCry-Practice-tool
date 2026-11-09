@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "log.h"
+#include "menu.h"
 #include "nav.h"
 #include "ue3/engine.h"
 #include "ue3/ue3.h"
@@ -56,7 +57,6 @@ const KnownName kNames[] = {
     {"DreamRunnerBoss", "Drekavac"},
 };
 
-constexpr int kMaxCount = 10;
 constexpr int kMaxAlive = 40;            // never more enemies than this at once from our spawns
 constexpr ULONGLONG kLoadTimeoutMs = 20000;
 
@@ -119,6 +119,9 @@ const Kind* FindKind(const std::string& id) {
 void SetMsg(const std::string& m) {
   g_msg = m;
   LOG("enemies: %s", m.c_str());
+  std::string t = m;
+  if (!t.empty() && t.back() == '.') t.pop_back();
+  menu::Toast(t);
 }
 
 // The game's list: Params.EnemyEncounterParams.m_EnemyDataParams (struct EnemyDataParams, 0x2C bytes:
@@ -353,8 +356,8 @@ void SetSel(const Selection& s) {
   Selection c = s;
   c.count = std::clamp(c.count, 1, kMaxCount);
   c.where = std::clamp(c.where, 0, 1);
-  c.distance = std::clamp(c.distance, 1.0f, 20.0f);
-  c.posSlot = std::clamp(c.posSlot, 0, nav::kPosSlots - 1);
+  c.distance = std::clamp(c.distance, 1.0f, 100.0f);
+  c.posSlot = std::clamp(c.posSlot, nav::kPosSlots, nav::kAllPosSlots - 1);
   std::lock_guard<std::mutex> lk(g_mu);
   g_sel = c;
 }
@@ -367,6 +370,7 @@ void LoadJson(const nlohmann::json& j) {
   s.where = j.value("where", s.where);
   s.distance = j.value("distance", s.distance);
   s.posSlot = j.value("pos_slot", s.posSlot);
+  if (s.posSlot < nav::kPosSlots) s.posSlot += nav::kPosSlots;  // before 0.11 "where" used Dante's slots 1-3
   SetSel(s);
 }
 
@@ -384,10 +388,6 @@ std::string Blocked(Action a) {
     Selection sel = GetSel();
     for (size_t i = 0; i < s.kinds.size() && i < s.avail.size(); ++i)
       if (s.kinds[i].id == sel.kind && s.avail[i] == Avail::Missing) return "not available on this map";
-    if (sel.where == 1) {
-      nav::Snapshot ns = nav::Now();
-      if (!ns.slot[sel.posSlot]) return "nothing saved in this position slot";
-    }
   }
   if (a == Action::KillAll && s.active == 0) return "no enemies";
   if (a == Action::Despawn && s.spawned == 0) return "none spawned";
@@ -474,7 +474,7 @@ void Spawn(const game::World& w) {
   if (sel.where == 1) {
     int yaw = 0;
     if (!nav::SavedPosition(sel.posSlot, &p.center, &yaw)) {
-      SetMsg("Nothing saved in this position slot.");
+      SetMsg("Position " + std::to_string(sel.posSlot + 1) + " is empty: save it first");
       return;
     }
     p.faceYaw = yaw;      // a row across the saved view direction
@@ -534,7 +534,7 @@ void KillAll(const game::World& w) {
   bool ok = c.Valid() && c.Invoke();
   for (auto it = saved.rbegin(); it != saved.rend(); ++it)
     if (game::Alive(it->first)) SetBool(it->first, "bGodMode", it->second);
-  SetMsg(ok ? "Killed " + std::to_string(foes.size()) + " enemies." : "Kill all did not work here.");
+  SetMsg(ok ? "All enemies killed (" + std::to_string(foes.size()) + ")" : "Kill all did not work here.");
   if (allies) LOG("enemies: kill all spared %d other AI character(s)", allies);
 }
 

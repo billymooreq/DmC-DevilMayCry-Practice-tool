@@ -11,6 +11,7 @@
 
 #include "config.h"
 #include "log.h"
+#include "menu.h"
 #include "realcp.h"
 #include "ue3/engine.h"
 #include "ue3/ue3.h"
@@ -40,7 +41,7 @@ struct PosSlot {
   int rot[3] = {};
   int ctrlRot[3] = {};
 };
-PosSlot g_slots[kPosSlots];
+PosSlot g_slots[kAllPosSlots];
 std::string g_slotMap;  // saved positions live until the map changes
 
 // A load we started: no second one until the new map is up (double press of a bind, impatient clicks).
@@ -228,6 +229,19 @@ int CurrentDifficulty(const game::World& w) {
   return p ? game::GetInt(p, "m_iCurrentDifficultyMode", -1) : -1;
 }
 
+// The game's own spelling of a mission map (DevilGame\Config\DefaultUI.ini, DefaultMissionList /
+// DefaultSecretMissionList; the same in v1.3 and v1.0). Other maps: as given.
+std::string GameMapName(const std::string& map) {
+  static const char* const kNames[] = {
+      "ch1_main",  "ch2_main",  "ch4_main",  "ch5_main",  "ch6_main",  "ch7_main",  "ch8_main",  "ch9A_main",
+      "ch9B_main", "ch10_main", "ch11_main", "ch12_main", "ch13_main", "ch14_main", "ch15_main", "ch16_main",
+      "ch17_main", "ch18_main", "ch19_main", "ch20_main"};
+  for (const char* n : kNames)
+    if (_stricmp(n, map.c_str()) == 0) return n;
+  if (_strnicmp(map.c_str(), "SecretMission", 13) == 0 && map.size() == 20) return "SecretMission" + map.substr(13, 2) + "_Main";
+  return map;
+}
+
 // Starts a map the way the game's own menus do (DVGFxMovieHandler_*_Callbacks.StartMission / LoadMap):
 // clear the saved checkpoint, then "open <map>". With a checkpoint name the level starts at that checkpoint.
 bool OpenMap(const game::World& w, const Mission& m, const std::string& checkpoint, bool clear, const char* what) {
@@ -253,10 +267,14 @@ bool OpenMap(const game::World& w, const Mission& m, const std::string& checkpoi
     engine::Call c(cp, "SetCheckpointName");
     c.Str("MapName", util::Utf8ToWide(m.map)).Str("CheckpointName", util::Utf8ToWide(checkpoint)).Invoke();
   }
+  // The map under the name the game's own menus use (DefaultUI.ini DefaultMissionList: "ch8_main", "ch9A_main"):
+  // the loading screen's map name (Engine.TransitionDescription) is then the same as in the game, which is what
+  // the community LiveSplit autosplitter compares (case-sensitive) to start and split.
+  std::string url = GameMapName(m.map);
   engine::Call open(w.pc, "ConsoleCommand");
-  open.Str("Command", util::Utf8ToWide("open " + m.map)).Bool("bWriteToLog", true).Invoke();
+  open.Str("Command", util::Utf8ToWide("open " + url)).Bool("bWriteToLog", true).Invoke();
   g_busy = {true, w.gen, GetTickCount64(), what};
-  LOG("nav: %s -> open %s%s%s (difficulty %s)", what, m.map.c_str(), checkpoint.empty() ? "" : ", checkpoint ",
+  LOG("nav: %s -> open %s%s%s (difficulty %s)", what, url.c_str(), checkpoint.empty() ? "" : ", checkpoint ",
       checkpoint.c_str(), DifficultyName(CurrentDifficulty(w)));
   return true;
 }
@@ -374,12 +392,22 @@ std::string BlockedNow(Action a, const game::World* w, int slot) {
   if (!FeaturesAllowed()) return "unknown game version";
   if (!s.ready) return "starting up";
   if (s.busy || realcp::Busy()) return "loading";
+  if (a == Action::DevRoom) {
+    // Game v1.0 takes ~2 GB more for this map than v1.3 the moment Dante appears (3.8-3.9 of the 4 GB a 32-bit game
+    // can use) and crashes most of the time, with or without the tool's save protection (#17).
+    if (GetGameVersion().version == GameVersion::Release2013) return "not available on game v1.0";
+    if (!s.frontEnd && !s.mission) return "loading";
+    // The title screen has no save slot yet: the room saves a checkpoint into the active slot as it starts.
+    if (s.frontEnd && s.slotStatus != 3 && s.slotStatus != 4) return "choose a save slot first";
+    return "";
+  }
   if (a == Action::MissionSelect) return s.frontEnd || s.mission ? "" : "loading";
   if (!s.mission) return s.frontEnd ? "in a mission only" : "loading";
   // Loads may stop a cutscene (the pause menu's Restart does the same); moving Dante inside one may not.
   bool moves = a == Action::Teleport || a == Action::SavePos || a == Action::LoadPos;
   if (moves && s.cutscene) return "not during a cutscene";
   if (a == Action::Keep) return s.missionIndex < 0 ? "not a story mission" : "";
+  if (a == Action::Restart && s.devRoom >= 0) return "";
   if ((a == Action::Restart || a == Action::LoadCheckpoint || a == Action::Teleport) && s.missionIndex < 0)
     return "not a story or secret mission";
   if (a == Action::LoadPos && (slot < 0 || slot >= kPosSlots || !s.slot[slot])) return "nothing saved in this slot";
@@ -392,6 +420,9 @@ bool Refuse(Action a, const char* what, int slot = 0) {
   std::string why = g_busy.on && a != Action::SavePos ? std::string("loading") : BlockedNow(a, nullptr, slot);
   if (why.empty()) return false;
   LOG("nav: %s ignored (%s)", what, why.c_str());
+  std::string w = what;
+  if (!w.empty()) w[0] = (char)toupper((unsigned char)w[0]);
+  menu::Toast(w + ": " + why);
   return true;
 }
 
@@ -737,6 +768,17 @@ bool Edited(int mission) {
   return false;
 }
 
+const std::vector<DevRoom>& DevRooms() {
+  static const std::vector<DevRoom> rooms = {{"Combat", "Dev room"}};
+  return rooms;
+}
+
+int FindDevRoom(const std::string& map) {
+  for (size_t i = 0; i < DevRooms().size(); ++i)
+    if (Lower(map) == Lower(DevRooms()[i].map)) return (int)i;
+  return -1;
+}
+
 Snapshot Now() {
   std::lock_guard<std::mutex> lk(g_mu);
   return g_snap;
@@ -772,7 +814,7 @@ void LoadJson(const json& j) {
   s.selDifficulty = std::clamp(j.value("difficulty", 0), 0, kDifficulties - 1);
   s.selPoint = j.value("mission_point", 0);
   s.slot = std::clamp(j.value("slot", 0), 0, kPosSlots - 1);
-  s.useReal = j.value("use_real", true);
+  s.useReal = true;  // "Use created checkpoints" was removed: created checkpoints always load like Continue
   std::lock_guard<std::mutex> lk(g_mu);
   g_sel = s;
 }
@@ -825,18 +867,48 @@ void OnFrame(const game::World& w) {
   s.busy = g_busy.on || realcp::Busy();
   s.map = w.map;
   s.missionIndex = w.mission ? FindMission(w.map) : -1;
+  s.devRoom = w.mission ? FindDevRoom(w.map) : -1;
+  {
+    // main menu: is a save slot loaded (the title screen has none)? Checked once a second.
+    static ULONGLONG next = 0;
+    static int status = -1;
+    static uintptr_t fn = 0;
+    ULONGLONG now = GetTickCount64();
+    if (!s.frontEnd) {
+      status = -1;
+    } else if (now >= next) {
+      next = now + 1000;
+      if (!fn) fn = ue3::FindObject("Function", "GetActiveSlotStatus", "DVSaveManager");
+      uintptr_t prof = Profile(w);
+      int st = -1;
+      if (fn && prof) {
+        engine::Call c(prof, fn);
+        if (c.Invoke()) st = c.RetByte();
+      }
+      if (st != status) LOG("nav: save slot status %d", st);
+      status = st;
+    }
+    s.slotStatus = status;
+  }
   s.difficulty = st.ready ? CurrentDifficulty(w) : -1;
-  for (int i = 0; i < kPosSlots; ++i) s.slot[i] = g_slots[i].ok;
+  for (int i = 0; i < kAllPosSlots; ++i) s.slot[i] = g_slots[i].ok;
   std::lock_guard<std::mutex> lk(g_mu);
   g_snap = s;
 }
 
 void RestartMission(const game::World& w) {
   if (Refuse(Action::Restart, "restart mission")) return;
+  if (int room = FindDevRoom(w.map); room >= 0) {  // the Dev room starts again on the same difficulty
+    Mission m;
+    m.id = m.map = DevRooms()[room].map;
+    m.name = DevRooms()[room].name;
+    if (OpenMap(w, m, "", true, "restart dev room")) menu::Toast(std::string(m.name) + " restarted");
+    return;
+  }
   Mission mm;
   if (!CurrentMission(w, mm)) return;
   const Mission* m = &mm;
-  OpenMap(w, *m, "", true, "restart mission");
+  if (OpenMap(w, *m, "", true, "restart mission")) menu::Toast("Mission restarted");
 }
 
 void LoadPoint(const game::World& w, int point) {
@@ -849,7 +921,8 @@ void LoadPoint(const game::World& w, int point) {
     return;
   }
   const Point& p = m->points[point];
-  if (GetSel().useReal && !p.cp.empty() && realcp::Find(m->map, p.cp)) {  // a real save of this point: Continue
+  menu::Toast("Loaded checkpoint " + std::to_string(point + 1) + ": " + p.name);
+  if (!p.cp.empty() && realcp::Find(m->map, p.cp)) {  // the player's own (created) checkpoint: Continue
     LOG("nav: load checkpoint %s from the kept real save", p.cp.c_str());
     realcp::Load(m->map, p.cp);
     return;
@@ -857,12 +930,13 @@ void LoadPoint(const game::World& w, int point) {
   OpenMap(w, *m, p.kind == Kind::Start ? "" : p.id, true, ("load checkpoint " + p.id).c_str());
 }
 
-void MissionSelect(const game::World& w, int mission, int difficulty, int point) {
+void MissionSelect(const game::World& w, int mission, int difficulty, int point, bool ownCheckpoints) {
   if (Refuse(Action::MissionSelect, "mission select")) return;
   Mission m;
   if (!CopyMission(mission, m)) return;
   if (point < 0 || point >= (int)m.points.size() || !m.points[point].Loadable()) point = 0;
-  if (const Point& rp = m.points[point]; GetSel().useReal && !rp.cp.empty() && realcp::Find(m.map, rp.cp)) {
+  menu::Toast("Loading " + m.name + (m.secret ? "" : std::string(" \u00B7 ") + DifficultyName(difficulty)) + "...");
+  if (const Point& rp = m.points[point]; ownCheckpoints && !rp.cp.empty() && realcp::Find(m.map, rp.cp)) {
     LOG("nav: mission select %s %s from the kept real save (its own difficulty)", m.id.c_str(), rp.cp.c_str());
     realcp::Load(m.map, rp.cp);
     return;
@@ -885,6 +959,37 @@ void MissionSelect(const game::World& w, int mission, int difficulty, int point)
   OpenMap(w, m, p.kind == Kind::Start ? "" : p.id, !m.secret, ("mission select " + m.id).c_str());
 }
 
+bool OpenMainMenu(const game::World& w) {
+  if (!w.pc) {
+    LOG("nav: main menu refused - no player controller");
+    return false;
+  }
+  CloseGameMenus();
+  if (uintptr_t f = ue3::FindObject("Function", "StopAnyPlayingCutscene", "NTBaseEngine")) {
+    engine::Call c(w.pc, f);
+    c.Invoke();
+  }
+  engine::Call open(w.pc, "ConsoleCommand");
+  open.Str("Command", L"open mainmenu_startup").Bool("bWriteToLog", true).Invoke();
+  LOG("nav: -> open mainmenu_startup (main menu) from %s", w.map.c_str());
+  return true;
+}
+
+// Dev room: the developers' test map. Only the difficulty is set (not the mission number in the save); the map
+// starts at its own beginning. The room's script would unlock every ability in the save: devtools.cpp skips that.
+void StartDevRoom(const game::World& w, int room, int difficulty) {
+  if (Refuse(Action::DevRoom, "dev room")) return;
+  if (room < 0 || room >= (int)DevRooms().size()) return;
+  const DevRoom& d = DevRooms()[room];
+  int mode = std::clamp(difficulty, 0, kDifficulties - 1);
+  menu::Toast(std::string("Loading ") + d.name + "\xE2\x80\xA6");
+  SetDifficulty(w, mode, -1);
+  Mission m;
+  m.id = m.map = d.map;
+  m.name = d.name;
+  if (!OpenMap(w, m, "", true, "dev room")) menu::Toast(std::string(d.name) + ": could not start the map here");
+}
+
 void Teleport(const game::World& w, int point) {
   if (Refuse(Action::Teleport, "teleport")) return;
   Mission mm;
@@ -897,10 +1002,11 @@ void Teleport(const game::World& w, int point) {
   const Point& p = m->points[point];
   DoTeleport(w, p.pos, Rot{0, p.yaw, 0}, nullptr);
   LOG("nav: teleport to %s (%.0f %.0f %.0f)", p.id.c_str(), p.pos.x, p.pos.y, p.pos.z);
+  menu::Toast("Dante moved to point " + std::to_string(point + 1));
 }
 
 void SavePos(const game::World& w, int slot) {
-  if (Refuse(Action::SavePos, "save position") || slot < 0 || slot >= kPosSlots) return;
+  if (Refuse(Action::SavePos, "save position") || slot < 0 || slot >= kAllPosSlots) return;
   PosSlot s;
   Rot r;
   if (!ActorPlace(w.pawn, s.loc, r)) return;
@@ -911,6 +1017,8 @@ void SavePos(const game::World& w, int slot) {
   g_slots[slot] = s;
   g_slotMap = w.map;
   LOG("nav: position %d saved (%.0f %.0f %.0f)", slot + 1, s.loc.x, s.loc.y, s.loc.z);
+  menu::Toast(slot < kPosSlots ? "Position " + std::to_string(slot + 1) + " saved"
+                               : "Enemy position " + std::to_string(slot + 1) + " saved where Dante stands");
 }
 
 void LoadPos(const game::World& w, int slot) {
@@ -921,10 +1029,11 @@ void LoadPos(const game::World& w, int slot) {
   memcpy(&c, s.ctrlRot, sizeof c);
   DoTeleport(w, s.loc, r, &c);
   LOG("nav: position %d loaded", slot + 1);
+  menu::Toast("Dante moved to position " + std::to_string(slot + 1));
 }
 
 bool SavedPosition(int slot, game::Vec* loc, int* yaw) {
-  if (slot < 0 || slot >= kPosSlots || !g_slots[slot].ok) return false;
+  if (slot < 0 || slot >= kAllPosSlots || !g_slots[slot].ok) return false;
   *loc = g_slots[slot].loc;
   *yaw = g_slots[slot].rot[1];
   return true;

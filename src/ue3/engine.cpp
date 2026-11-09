@@ -30,6 +30,10 @@ uintptr_t g_peAddr = 0;
 std::atomic<bool> g_hooked{false};
 std::atomic<DWORD> g_gameThread{0};
 thread_local int t_depth = 0;
+// ProcessEvent calls in progress on this thread (outermost first): who is doing what when a hit lands.
+constexpr int kStackMax = 64;
+thread_local EventFrame t_stack[kStackMax];
+thread_local int t_sp = 0;
 
 std::mutex g_qMu;
 std::deque<std::function<void()>> g_queue;
@@ -40,6 +44,7 @@ thread_local unsigned t_lastFrame = 0;
 std::atomic<void (*)()> g_frameCb{nullptr};
 std::atomic<EventHook> g_eventHook{nullptr};
 std::atomic<EventHook> g_eventHookAfter{nullptr};
+std::atomic<EventVeto> g_eventVeto{nullptr};
 
 std::atomic<bool> g_peLog{false};
 std::mutex g_filterMu;  // guards the pointer swap only; the vector itself is immutable
@@ -67,9 +72,19 @@ void LogEvent(void* self, void* fn) {
   std::string func = ue3::ObjName((uintptr_t)fn);
   std::string obj = ue3::ObjName((uintptr_t)self);
   std::string full = obj + "." + func;
-  bool hit = filter->empty();
-  for (const std::string& f : *filter)
-    if (!f.empty() && full.find(f) != std::string::npos) hit = true;
+  // Filter parts: "Cam" = log calls whose "Object.Function" contains it; "!Tick" = never log those.
+  bool hit = true;
+  bool anyInclude = false;
+  for (const std::string& f : *filter) {
+    if (f.empty()) continue;
+    if (f[0] == '!') {
+      if (full.find(f.c_str() + 1) != std::string::npos) return;
+      continue;
+    }
+    if (!anyInclude) hit = false;
+    anyInclude = true;
+    if (full.find(f) != std::string::npos) hit = true;
+  }
   if (!hit) return;
   static thread_local std::string last;
   static thread_local int repeats = 0;
@@ -106,11 +121,21 @@ void __fastcall hkProcessEvent(void* self, void* /*edx*/, void* fn, void* parms,
     }
   }
   if (g_peLog) LogEvent(self, fn);
+  if (EventVeto v = g_eventVeto.load(); v && tid == g_gameThread) {
+    ++t_depth;
+    bool skip = v(self, fn, parms);
+    --t_depth;
+    if (skip) return;
+  }
+  int sp = t_sp;
+  if (sp < kStackMax) t_stack[sp] = {self, fn};
+  t_sp = sp + 1;
   if (EventHook h = g_eventHook.load(); h && tid == g_gameThread) h(self, fn, parms);
   ++t_depth;
   g_origPE(self, fn, parms, result);
   --t_depth;
   if (EventHook h = g_eventHookAfter.load(); h && tid == g_gameThread) h(self, fn, parms);
+  t_sp = sp;
 }
 
 std::mutex g_fnMu;
@@ -138,11 +163,17 @@ bool InstallProcessEventHook() {
 }
 
 bool Hooked() { return g_hooked; }
+int EventDepth() { return t_sp < kStackMax ? t_sp : kStackMax; }
+EventFrame EventAt(int i) {
+  int d = EventDepth();
+  return i >= 0 && i < d ? t_stack[d - 1 - i] : EventFrame{nullptr, nullptr};
+}
 void NotifyFrame() { ++g_frame; }
 unsigned FrameCount() { return g_frame; }
 void SetFrameCallback(void (*fn)()) { g_frameCb = fn; }
 void SetEventHook(EventHook h) { g_eventHook = h; }
 void SetEventHookAfter(EventHook h) { g_eventHookAfter = h; }
+void SetEventVeto(EventVeto v) { g_eventVeto = v; }
 uintptr_t ProcessEventAddr() { return g_peAddr; }
 const char* ProcessEventSignature() { return kSigProcessEvent; }
 
@@ -175,6 +206,7 @@ void SetPeLog(bool on, const std::string& filter) {
     g_peFilter = v;
   }
   if (on != g_peLog) LOG("engine: ProcessEvent log %s (filter '%s')", on ? "ON" : "off", filter.c_str());
+  if (on) g_peLines = 0;  // a new filter starts a new budget
   g_peLog = on;
 }
 

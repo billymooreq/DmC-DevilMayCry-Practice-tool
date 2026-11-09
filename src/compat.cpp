@@ -142,7 +142,7 @@ std::string Build() {
   line("FileVersion: " + FileVersion(wp));
   line(Fmt("TimeDateStamp: 0x%08X", v.timeDateStamp));
   line(Fmt("SizeOfImage: 0x%08X", v.sizeOfImage));
-  line(Fmt("detected: %s (%s)%s", v.label, v.name, FeaturesAllowed() ? "" : " - features locked"));
+  line(Fmt("detected: %s (%s)%s", v.label, v.name, GameVersionKnown() ? "" : " - not a known build"));
   {
     auto base = v.base;
     auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);

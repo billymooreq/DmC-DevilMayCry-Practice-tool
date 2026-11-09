@@ -758,6 +758,39 @@ bool ReloadSlotNow(int slot, std::string* err) {
   return ok;
 }
 
+bool SignInNow(std::string* err) {
+  GameCtx g = Context();
+  if (!g.profile || !g.frontEnd) {
+    if (err) *err = "main menu only";
+    return false;
+  }
+  uintptr_t ctx = g.profile;
+  int st = OnGame<int>([ctx] { return SlotStatusG(ctx); }, 3000);
+  if (st == 3 || st == 4) return true;
+  uintptr_t mi = FindMapInfo(g.map);
+  if (!mi) {
+    if (err) *err = "DVMapInfo of " + g.map + " not found";
+    return false;
+  }
+  bool called = OnGame<bool>([mi] {
+    engine::Call c(mi, "BeginSignIn");
+    return c.Invoke();
+  });
+  LOG("slots: title screen (slot status %d) - BeginSignIn %s", st, called ? "called" : "FAILED");
+  for (int t = 0; called && t < 20000; t += 250) {
+    Sleep(250);
+    struct R { int status; bool busy; };
+    R r = OnGame<R>([ctx] { return R{SlotStatusG(ctx), SaveBusyG(ctx)}; }, 3000);
+    st = r.status;
+    if (!r.busy && (st == 3 || st == 4)) {
+      LOG("slots: signed in (slot status %d after %d ms)", st, t + 250);
+      return true;
+    }
+  }
+  if (err) *err = "sign-in did not finish (slot status " + std::to_string(st) + ")";
+  return false;
+}
+
 bool Busy() { return g_busy || g_refreshing; }
 
 std::vector<std::string> Report() {

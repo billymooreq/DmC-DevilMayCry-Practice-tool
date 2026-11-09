@@ -50,6 +50,13 @@ VersionInfo Detect() {
 
 }  // namespace
 
+namespace {
+bool g_pretendUnknown = false;
+}
+
+bool GameVersionKnown() { return !g_pretendUnknown && GetGameVersion().version != GameVersion::Unknown; }
+void SetPretendUnknown(bool on) { g_pretendUnknown = on; }
+
 const VersionInfo& GetGameVersion() {
   static const VersionInfo vi = Detect();
   return vi;

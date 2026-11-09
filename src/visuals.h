@@ -23,7 +23,7 @@
 // Everything is read-only: nothing in the game is changed.
 namespace visuals {
 
-enum class Cat { Enemy, Player, Hitbox, HitMarker, Cutscene, Arena, OtherTrigger, Walls, Count };
+enum class Cat { Enemy, Player, Hitbox, HitMarker, Cutscene, Arena, OtherTrigger, Walls, Area, Hazard, Count };
 constexpr int kCats = (int)Cat::Count;
 
 // Colours of the categories (legend on the tab, lines). Dante's hitboxes and the enemies' ones differ.
@@ -36,6 +36,7 @@ void SetOn(Cat c, bool on);
 bool On(Cat c);
 void SetMoveCapsule(bool enemies, bool on);  // option: also the upright movement capsule
 void SetLinger(float seconds);               // hitboxes stay this long after their last active frame
+void SetAreaLinger(float seconds);           // explosions / damage zones: the same after they stop hurting
 void SetWallGrid(bool on);                   // option: a 1 m grid on the faces of near invisible walls
 
 // ---- options shared by all categories (saved in DmCPracticeTool.json "visuals")
@@ -89,13 +90,18 @@ void SetOccludeAll(bool on);                   // Dev: every category hidden beh
 // Counts for the tab ("12 shapes, 3 triggers (1 arena, 2 cutscene)") and Dev.
 struct Stats {
   int lines = 0, labels = 0;
-  int bodies = 0, strikes = 0, markers = 0;
+  int bodies = 0, strikes = 0, markers = 0, areas = 0;
   int triggers[3] = {0, 0, 0};  // cutscene, arena, other (in range or not)
   int walls = 0;                // blocking Dante now, in range or not
+  int hazards = 0;              // pain volumes drawn
   int labelsHidden = 0;         // labels of triggers hidden behind walls (last drawn frame)
   float collectMs = 0, drawMs = 0;
 };
 Stats GetStats();
+
+// Dev / autorun (game thread): the game's own explosion / damage zone next to Dante, and how often it hit him.
+std::string AreaTest(const std::string& paramsName, float dx, float dz);
+std::string AreaTestResult();
 
 // Dev / autorun: details of active strikes and triggers (shape parameters, classification path).
 std::vector<std::string> DebugLines(const std::string& what);

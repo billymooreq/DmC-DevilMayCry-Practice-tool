@@ -289,8 +289,22 @@ struct Ghost {
   Vec labelAt;
   std::string label;
   float minLife = 0;  // instant events (direct hits) stay at least this long, whatever the slider says
+  bool area = false;  // explosions / damage zones (own category and "Keep on screen")
 };
 std::deque<Ghost> g_ghosts;
+// Explosions and other damage zones (Cat::Area): live sources -> last capture; "active" while they can hurt.
+struct AreaSrc {
+  double lastCapture = -1;
+  bool active = false;
+  float hold = 0.1f;  // the last shape stays bright this long without a new capture (damage zones tick slowly)
+};
+std::unordered_map<uintptr_t, AreaSrc> g_areas;
+// Dev / autorun "area_test": an explosion / damage zone of the game spawned next to Dante, its hits on him counted
+uintptr_t g_testSrc = 0;
+std::string g_testName;
+int g_testHits = 0;
+float g_testDmg = 0, g_testMin = 1e9f, g_testMax = 0;
+std::atomic<float> g_areaLinger{0.5f};
 struct Strike {
   uintptr_t owner = 0;
   double lastCapture = -1;
@@ -333,9 +347,10 @@ struct Scan {
   int next = 0;
   std::vector<uintptr_t> events;
   std::unordered_multimap<int, uintptr_t> remote;  // SeqEvent_RemoteEvent by EventName index
-  std::vector<uintptr_t> walls;
+  std::vector<uintptr_t> walls, pains;
 } g_scan;
 std::vector<uintptr_t> g_walls;  // blocking volumes of the loaded levels (last finished scan)
+std::vector<uintptr_t> g_pains;  // pain volumes of the loaded levels (Level hazards)
 ULONGLONG g_nextScan = 0;
 // BrushComponent -> its convex elements in local space: outline edges + a grid on the faces (invisible walls)
 struct ConvexShape {
@@ -358,6 +373,8 @@ enum ClassFlag : uint32_t {
   kInterp = 64, kSequence = 128, kActivateRemote = 256, kFinishSequence = 512, kSeqActivated = 1024,
   kVolArc = 2048, kVolCapsule = 4096, kVolCone = 8192, kVolTwoArcs = 16384, kCylinderComp = 32768,
   kBrushComp = 65536, kDirector = 131072, kSequenceEvent = 262144, kWall = 524288,
+  kExplosion = 1u << 20, kRadialDamager = 1u << 21, kBallistic = 1u << 22, kShockwave = 1u << 23, kPainVolume = 1u << 24,
+  kAttackActor = 1u << 25, kChargeAction = 1u << 26, kEnvAttacker = 1u << 27,
 };
 std::unordered_map<uintptr_t, uint32_t> g_classFlags;
 uint32_t Flags(uintptr_t obj) {
@@ -394,6 +411,21 @@ uint32_t Flags(uintptr_t obj) {
   if (is("InterpGroupDirector")) f |= kDirector;
   // invisible walls: what pawns collide with (camera blocking volumes are a separate tree and stay out)
   if (is("BlockingVolume") || is("DynamicBlockingVolume") || is("NTCollisionVolume")) f |= kWall;
+  // damage zones (Explosions & area damage)
+  if (is("NTExplosion")) f |= kExplosion;
+  if (is("DVRadialDamager")) f |= kRadialDamager;
+  if (is("NTCombat_Ballistic")) f |= kBallistic;
+  if (is("DVCombat_Shockwave")) f |= kShockwave;
+  if (is("NTPainVolume")) f |= kPainVolume;
+  // attacks that are actors hitting by their own shape: homing / targeted projectiles (Witch swords...), touch
+  // actors (Witch gun shards, Rage spikes), ricochet shots
+  if (is("NTCombat_ProjectileTargeted") || is("DVGunShardsActor") || is("DVCombat_RageSpikeCluster") ||
+      is("DVCombat_RicoShotProjectile") || is("DVHomingMissile"))
+    f |= kAttackActor;
+  // Tyrant / Butcher charge: the body itself hits (Touch / CollisionNotify of the moving pawn)
+  if (is("DVAction_ChargeableEnemy_Attack")) f |= kChargeAction;
+  // boss attacks out of the level (Hunter's blades, Mundus' Spawn snakes...): a damage cylinder while striking
+  if (is("DVEnvironmentAttackerBase")) f |= kEnvAttacker;
   g_classFlags[cls] = f;
   return f;
 }
@@ -401,8 +433,19 @@ uint32_t Flags(uintptr_t obj) {
 // Function names the observer reacts to (name index, resolved once).
 struct Names {
   int started = -1, stopped = -1, tick = -1, processTick = -1, contacted = -1, strikeCb = -1, contact = -1;
+  int destroyed = -1, damageTick = -1, preBegin = -1, postBegin = -1, touch = -1, afterDelay = -1;
+  int onStart = -1, onTick = -1, cleanup = -1;
   bool ok = false;
   void Resolve() {
+    onStart = ue3::FindNameIndex("OnStart");
+    onTick = ue3::FindNameIndex("OnTick");
+    cleanup = ue3::FindNameIndex("CommonCleanup");
+    postBegin = ue3::FindNameIndex("PostBeginPlay");
+    touch = ue3::FindNameIndex("Touch");
+    afterDelay = ue3::FindNameIndex("AfterInitialDelay");
+    preBegin = ue3::FindNameIndex("PreBeginPlay");
+    destroyed = ue3::FindNameIndex("Destroyed");
+    damageTick = ue3::FindNameIndex("DamageTick");
     started = ue3::FindNameIndex("ProcessStarted");
     stopped = ue3::FindNameIndex("ProcessStopped");
     processTick = ue3::FindNameIndex("ProcessTick");
@@ -695,6 +738,275 @@ void CaptureProjectile(uintptr_t proj) {
   AddGhost(proj, GetObj(proj, "m_OwningPawn"), vol, loc, rot, "");
 }
 
+// Attacks that are actors (homing swords, touch shards, spikes): their strike volume along the way they move, or
+// their collision component; every frame while alive.
+std::unordered_set<uintptr_t> g_attackActors;
+std::unordered_map<uintptr_t, double> g_charges;  // charge actions -> last OnTick
+bool DrawVolume(const Sink& sink, uintptr_t actor, const game::Pov& cam, float maxDist, Vec& top, bool fade = false,
+                bool grid = false);
+void CaptureAttackActor(uintptr_t a, const game::Pov& cam) {
+  double& last = g_projectiles[a];
+  if (last > 0 && g_clock - last < 1.0 / 60.0) return;
+  last = g_clock;
+  uintptr_t owner = 0;
+  for (const char* fo : {"m_NTPawnOwner", "m_PawnOwner", "m_OwnerPawn", "m_OwningPawn", "Instigator", "Owner"})
+    if (!owner && game::FieldOf(a, fo).ok()) owner = GetObj(a, fo);
+  Ghost g;
+  g.key = a;
+  g.t = g_clock;
+  g.col = IsDante(owner) ? Color(Cat::Hitbox) : EnemyHitboxColor();
+  Sink s{&g.lines, g.col};
+  Vec loc{};
+  if (!ActorLoc(a, loc)) return;
+  uintptr_t vol = game::FieldOf(a, "m_StrikeVolume").ok() ? GetObj(a, "m_StrikeVolume") : 0;
+  bool ok = false;
+  if (vol && (Flags(vol) & (kVolCapsule | kVolArc | kVolCone | kVolTwoArcs))) {
+    Vec dir{};
+    ReadAt(a, "m_MovementDirection", dir);
+    int rot[3] = {0, 0, 0};
+    if (Len(dir) < 0.1f) {
+      game::Field fr = game::FieldOf(a, "Rotation");
+      if (fr.ok()) util::SafeRead(a + fr.off, rot, 12);
+      dir = FromRot(rot).x;
+    } else {
+      dir = Norm(dir);
+      rot[0] = (int)(std::atan2(dir.z, std::sqrt(dir.x * dir.x + dir.y * dir.y)) * 32768.0f / kPi);
+      rot[1] = (int)(std::atan2(dir.y, dir.x) * 32768.0f / kPi);
+    }
+    // a capsule centred on the projectile along its way (as NTCombat_Projectile's automatic one)
+    if (Flags(vol) & kVolCapsule) loc = loc - dir * (GetFloat(vol, "Length") * 0.5f);
+    ok = VolumeLines(s, vol, loc, rot);
+    g.labelAt = loc;
+  }
+  if (!ok) {
+    Vec top{};
+    ok = DrawVolume(s, a, cam, FLT_MAX, top);
+    g.labelAt = top;
+  }
+  if (!ok) return;
+  std::string cn = ue3::ClassNameOf(a);
+  for (const char* pre : {"DVCombat_", "NTCombat_", "DV", "NT"})
+    if (cn.rfind(pre, 0) == 0) {
+      cn = cn.substr(strlen(pre));
+      break;
+    }
+  g.label = cn;
+  g_ghosts.push_back(std::move(g));
+  if (g_ghosts.size() > 800) g_ghosts.pop_front();
+}
+
+// ------------------------------------------------------------------ explosions & area damage
+// Sphere of radius r around the origin of t, cut to |local z| <= h (h >= r: the whole sphere): an equator, rings
+// where the cut meets the sphere and 8 arcs between them.
+void SphereSlab(const Sink& s, const Xf& t, float r, float h) {
+  float a = h >= r ? kPi * 0.5f : std::asin(std::clamp(h / r, 0.0f, 1.0f));
+  Ring(s, t, {}, {1, 0, 0}, {0, 1, 0}, r, 32);
+  if (h < r) {
+    float rr = std::sqrt(std::max(0.0f, r * r - h * h));
+    Ring(s, t, {0, 0, h}, {1, 0, 0}, {0, 1, 0}, rr, 24);
+    Ring(s, t, {0, 0, -h}, {1, 0, 0}, {0, 1, 0}, rr, 24);
+  }
+  for (int k = 0; k < 8; ++k) {
+    float d = k * kPi / 4;
+    Ring(s, t, {}, {std::cos(d), std::sin(d), 0}, {0, 0, 1}, r, 8, -a, a);
+  }
+}
+
+// Readable name of a parameters object: its own name (TankDrone_Combat.Misc.Explosion_SlamAttack -> SlamAttack), or
+// the name of the attack it sits in when it is an unnamed sub-object (..._Explosion_0).
+std::string ParamsName(uintptr_t par) {
+  if (!par) return "";
+  std::string a = ue3::ObjName(par);
+  if (a.find("Parameters_") != std::string::npos || a.find("Featurelet") != std::string::npos)
+    a = ue3::ObjName(ue3::ObjOuter(par));
+  for (const char* pre : {"Default__", "Action_Dante_", "Dante_Ranged_", "Dante_", "Explosion_", "Action_"})
+    if (a.rfind(pre, 0) == 0) a = a.substr(strlen(pre));
+  return Shorten(a, 32);
+}
+
+// NTExplosion (NTExplosion.ExplosionTick / ProcessActorHit): an actor is a candidate when its Location (the feet of a
+// DmC pawn) is within the current radius of the explosion's Location; its distance (closest point of its collision)
+// then picks the first damage band (CombatDamageData: fRadius, optional MaxHeight along the explosion's up axis)
+// that covers it. Drawn: the sphere of min(current radius, largest band), cut by that band's height limit; smaller
+// bands as fainter rings. Growing explosions are captured every tick. hurting: running and past its build-up.
+bool ExplosionLines(const Sink& s, uintptr_t ex, bool& hurting, Vec& top, std::string& label) {
+  uintptr_t par = GetObj(ex, "m_Parameters");
+  Vec loc{};
+  int rot[3] = {0, 0, 0};
+  game::Field fr = game::FieldOf(ex, "Rotation");
+  if (!par || !ActorLoc(ex, loc) || !fr.ok() || !util::SafeRead(ex + fr.off, rot, 12)) return false;
+  struct Band {
+    float r;
+    bool useH;
+    float h;
+  };
+  std::vector<Band> bands;
+  ue3::TArrayRaw a{};
+  if (ReadArr(par, "CombatDamageData", a))
+    for (int i = 0; i < a.num && i < 16; ++i) {
+      uintptr_t p = a.data + i * 0x28;  // NTExplosionCombatDamageData: fRadius +0, UseMaxHeight +4 (bit 0), MaxHeight +8
+      Band b{util::ReadOr<float>(p), (util::ReadOr<uint32_t>(p + 4) & 1) != 0, util::ReadOr<float>(p + 8)};
+      if (b.r > 0 && b.r < 100000) bands.push_back(b);
+    }
+  if (bands.empty()) return false;  // pushes things / breaks objects, hurts nobody
+  std::sort(bands.begin(), bands.end(), [](const Band& x, const Band& y) { return x.r < y.r; });
+  float cur = GetFloat(ex, "m_CurrentRadius");
+  bool running = GetBool(ex, "m_Running"), buildup = GetFloat(ex, "m_BuildUpTimeLeft") > 0;
+  float R = std::min(cur, bands.back().r);
+  if (buildup || cur <= 0) R = bands.back().r;  // not exploded yet: where it will hurt (drawn faint)
+  if (R < 1) return false;
+  hurting = running && !buildup && cur > 0;
+  Xf t = FromRot(rot, loc);
+  Sink o = s;
+  if (buildup || cur <= 0) o.col = WithAlpha(s.col, 0.35f);
+  const Band& outer = bands.back();
+  SphereSlab(o, t, R, outer.useH ? std::min(outer.h, R) : R);
+  Sink in = o;
+  in.col = WithAlpha(o.col, 0.55f);
+  for (size_t i = 0; i + 1 < bands.size(); ++i)
+    if (bands[i].r < R - 1) Ring(in, t, {}, {1, 0, 0}, {0, 1, 0}, bands[i].r, 24);
+  float donut = GetFloat(par, "m_DonutWidth");
+  if (GetBool(par, "m_UseDonutWidth") && cur > donut && donut > 0)  // standing inside the ring is safe
+    Ring(in, t, {}, {1, 0, 0}, {0, 1, 0}, cur - donut, 24);
+  top = t.P({0, 0, outer.useH ? std::min(outer.h, R) : R});
+  label = ParamsName(par);
+  if (label.empty()) label = "Explosion";
+  if (buildup) label += " (about to go off)";
+  return true;
+}
+
+// Largest damage band of explosion parameters (0 = hurts nobody).
+float ExplosionReach(uintptr_t par) {
+  float r = 0;
+  ue3::TArrayRaw a{};
+  if (par && ReadArr(par, "CombatDamageData", a))
+    for (int i = 0; i < a.num && i < 16; ++i) {
+      float v = util::ReadOr<float>(a.data + i * 0x28);
+      if (v > r && v < 100000) r = v;
+    }
+  return r;
+}
+
+// Grenades / bombs in flight (NTCombat_Ballistic): their collision cylinder and a faint ring where their
+// explosion will reach (the explosion itself is an NTExplosion, drawn when it goes off).
+std::unordered_set<uintptr_t> g_ballistics;
+std::unordered_set<uintptr_t> g_envAttackers;
+void BallisticLines(const Sink& s, uintptr_t b, Vec& top) {
+  Vec loc{};
+  if (!ActorLoc(b, loc)) return;
+  uintptr_t par = GetObj(b, "m_Parameters");
+  float r = 0, h = 0;
+  if (uintptr_t cyl = GetObj(b, "m_CylinderComp")) r = GetFloat(cyl, "CollisionRadius"), h = GetFloat(cyl, "CollisionHeight");
+  if ((r <= 0 || h <= 0) && par) r = GetFloat(par, "m_fCollisionRadius"), h = GetFloat(par, "m_fCollisionHeight");
+  if (r > 0 && r < 2000 && h > 0 && h < 2000) Cylinder(s, loc, r, h);
+  else {
+    Xf id;
+    Sphere(s, id, loc, 15);
+  }
+  float reach = 0;
+  if (par)
+    for (const char* f : {"ExplosionParameters", "m_ExplosionParameters"})
+      if (game::FieldOf(par, f).ok()) reach = std::max(reach, ExplosionReach(GetObj(par, f)));
+  if (reach > 0) {
+    Sink faint = s;
+    faint.col = WithAlpha(s.col, 0.4f);
+    Xf id;
+    Ring(faint, id, loc, {1, 0, 0}, {0, 1, 0}, reach, 32);
+  }
+  top = loc + Vec{0, 0, std::max(h, 15.0f)};
+}
+
+// Devil Trigger start (DVTriggerComponent.ShockwaveTick / IsInShockwave): a circle around the pawn growing at
+// ShockwaveSpeed to ShockwaveMaxRadius; enemies whose location is inside it horizontally (any height) are
+// launched. Drawn as a cylinder 1 m below to 3 m above the pawn's feet.
+void CaptureDtWave(uintptr_t pawn) {
+  uintptr_t comp = pawn ? GetObj(pawn, "m_TriggerComponent") : 0;
+  if (!comp || !ue3::IsObject(comp) || !GetBool(comp, "m_bShockwaveRunning")) return;
+  float r = GetFloat(comp, "m_CurrentShockwaveRadius");
+  Vec loc{};
+  if (r <= 1 || r > 20000 || !ActorLoc(pawn, loc)) return;
+  AreaSrc& as = g_areas[comp];
+  if (as.lastCapture == g_clock) return;
+  Ghost g;
+  g.key = comp;
+  g.t = g_clock;
+  g.area = true;
+  g.col = Color(Cat::Area);
+  Sink s{&g.lines, g.col};
+  Xf id;
+  Ring(s, id, loc + Vec{0, 0, -100}, {1, 0, 0}, {0, 1, 0}, r, 40);
+  Ring(s, id, loc, {1, 0, 0}, {0, 1, 0}, r, 40);
+  Ring(s, id, loc + Vec{0, 0, 300}, {1, 0, 0}, {0, 1, 0}, r, 40);
+  for (int i = 0; i < 8; ++i) {
+    float a = i * kPi / 4;
+    Vec o{std::cos(a) * r, std::sin(a) * r, 0};
+    s.L(loc + o + Vec{0, 0, -100}, loc + o + Vec{0, 0, 300});
+  }
+  g.label = "Devil Trigger wave";
+  g.labelAt = loc + Vec{r, 0, 300};
+  as.lastCapture = g_clock;
+  as.active = true;
+  as.hold = 0.1f;
+  g_ghosts.push_back(std::move(g));
+}
+
+void CaptureArea(uintptr_t src, bool force = false) {
+  if (!g_on[(int)Cat::Area] || !ue3::IsObject(src)) return;
+  AreaSrc& as = g_areas[src];
+  if (as.lastCapture == g_clock && as.lastCapture >= 0) return;  // once per frame
+  if (!force && as.lastCapture >= 0 && g_clock - as.lastCapture < 1.0 / 60.0) return;
+  Ghost g;
+  g.key = src;
+  g.t = g_clock;
+  g.area = true;
+  g.col = Color(Cat::Area);
+  Sink s{&g.lines, g.col};
+  uint32_t f = Flags(src);
+  bool ok = false, hurting = false;
+  if (f & kExplosion) {
+    ok = ExplosionLines(s, src, hurting, g.labelAt, g.label);
+    if (ok && !hurting) g.minLife = 0.25f;  // a one-tick explosion: visible for a moment even at "Keep on screen" 0
+  } else if (f & kRadialDamager) {
+    // DVRadialDamager.DamageTick: m_StrikeVolume.IntersectCheck(Location, Rotation) - a capsule standing up from the
+    // location (Radius = fRadius, Length = Height, pitch offset 90), every m_fTickTime while it lives
+    Vec loc{};
+    int rot[3] = {0, 0, 0};
+    game::Field fr = game::FieldOf(src, "Rotation");
+    uintptr_t vol = GetObj(src, "m_StrikeVolume");
+    if (vol && ActorLoc(src, loc) && fr.ok() && util::SafeRead(src + fr.off, rot, 12)) {
+      ok = VolumeLines(s, vol, loc, rot);
+      hurting = true;
+      if (uintptr_t par = GetObj(src, "m_Parameters")) as.hold = std::max(0.1f, GetFloat(par, "m_fTickTime") * 1.5f + 0.05f);
+      g.labelAt = loc + Vec{0, 0, GetFloat(vol, "Length") + GetFloat(vol, "Radius")};
+      g.label = ParamsName(GetObj(src, "m_Parameters"));
+      if (g.label.empty()) g.label = "Damage zone";
+    }
+  }
+  else if (f & kEnvAttacker) {
+    // DVEnvironmentAttackerBase: m_DamageCylinder touches what it hurts; minions only while m_StrikeAllowed
+    uintptr_t cyl = GetObj(src, "m_DamageCylinder");
+    Vec loc{};
+    float r = cyl ? GetFloat(cyl, "CollisionRadius") : 0, h = cyl ? GetFloat(cyl, "CollisionHeight") : 0;
+    if (r > 0 && h > 0 && r < 20000 && h < 20000 && ActorLoc(src, loc)) {
+      hurting = !game::FieldOf(src, "m_StrikeAllowed").ok() || GetBool(src, "m_StrikeAllowed");
+      Sink cs = s;
+      if (!hurting) cs.col = WithAlpha(s.col, 0.35f);
+      Cylinder(cs, loc, r, h);
+      ok = true;
+      g.labelAt = loc + Vec{0, 0, h};
+      std::string cn = ue3::ClassNameOf(src);
+      if (cn.rfind("DVEnvironmentAttacker", 0) == 0) cn = cn.substr(21);
+      g.label = "Level attack " + cn + (hurting ? "" : " (not yet)");
+      g.minLife = 0.05f;
+    }
+  }
+  if (!ok) return;
+  as.lastCapture = g_clock;
+  as.active = hurting;
+  g_ghosts.push_back(std::move(g));
+  if (g_ghosts.size() > 800) g_ghosts.pop_front();
+}
+
 void AddMarker(Vec p, bool dante) {
   for (const Marker& m : g_markers)
     if (g_clock - m.t < 0.1 && Len(m.p - p) < 8) return;  // the same hit reported twice
@@ -739,6 +1051,69 @@ void OnContact(uintptr_t nucleus, uintptr_t contact, bool markers, bool hitbox) 
   g.labelAt = b;
   g.minLife = 0.4f;
   g_ghosts.push_back(std::move(g));
+}
+
+// ------------------------------------------------------------------ hit audit (Dev / autorun "vis audit")
+// Every hit (ContactInternal) and every TakeDamage outside a contact: what dealt it (the ProcessEvent calls in
+// progress: ticks, timers, callbacks of the source object) and whether a shape was on screen for it. Finds damage
+// sources that Visuals does not draw yet.
+struct AuditRow {
+  int hits = 0, shape = 0, line = 0;
+  std::string example;
+};
+std::map<std::string, AuditRow> g_audit;
+std::atomic<bool> g_auditOn{false};
+std::unordered_set<uintptr_t> g_shapeNow;  // source objects with a shape on screen this frame (areas, lasers...)
+int g_auditTakeDamage = -1;
+
+std::string StackSig(int from, int frames) {
+  std::string s;
+  int d = engine::EventDepth();
+  for (int i = from, n = 0; i < d && n < frames; ++i, ++n) {
+    engine::EventFrame fr = engine::EventAt(i);
+    s += (n ? " < " : "") + ue3::ClassNameOf((uintptr_t)fr.self) + "." + ue3::ObjName((uintptr_t)fr.fn);
+  }
+  return s;
+}
+// Any call in progress belongs to an object we draw a shape for now.
+bool StackHasShape() {
+  int d = engine::EventDepth();
+  for (int i = 0; i < d; ++i) {
+    uintptr_t s = (uintptr_t)engine::EventAt(i).self;
+    auto a = g_areas.find(s);
+    if (g_strikes.count(s) || g_projectiles.count(s) || g_shapeNow.count(s) ||
+        (a != g_areas.end() && g_clock - a->second.lastCapture < 0.05))
+      return true;
+  }
+  return false;
+}
+void AuditHit(uintptr_t nucleus, uintptr_t contact, bool direct) {
+  uintptr_t attacker = GetObj(contact, "OriginatorActor"), victim = GetObj(nucleus, "Owner");
+  uintptr_t minion = GetObj(contact, "OriginatorMinion"), dmgType = GetObj(contact, "DamageType");
+  auto am = minion ? g_areas.find(minion) : g_areas.end();
+  bool shape = !direct || StackHasShape() || (am != g_areas.end() && am->second.lastCapture == g_clock);
+  // not damage: the tool's own Kill all (no game event in progress), contacts that only check for a parry
+  const char* kind = engine::EventDepth() <= 1 ? "tool/native " : GetFloat(contact, "DamageAmount") <= 0 ? "no damage " : "";
+  std::string key = std::string(kind) + (IsDante(victim) ? "on Dante" : "on enemy") + " | " +
+                    (attacker ? ue3::ClassNameOf(attacker) : "none") + " | " + StackSig(1, 2) + " | dmg " +
+                    (dmgType ? ue3::ObjName(dmgType) : "-") + " | minion " + (minion ? ue3::ClassNameOf(minion) : "-");
+  AuditRow& r = g_audit[key];
+  ++r.hits;
+  if (shape) ++r.shape;
+  else if (direct && g_on[(int)Cat::Hitbox]) ++r.line;
+  if (r.hits == 1) {
+    r.example = game::GetStr(contact, "DefinitionPathName");
+    LOG("visuals: audit NEW %s [%s] def %s | stack %s | dmg %.0f", shape ? "shape" : "NO SHAPE", key.c_str(),
+        r.example.c_str(), StackSig(1, 6).c_str(), GetFloat(contact, "DamageAmount"));
+  }
+}
+void AuditTakeDamage(uintptr_t self) {
+  int d = engine::EventDepth();
+  for (int i = 1; i < d; ++i)
+    if (ue3::ObjNameIndex((uintptr_t)engine::EventAt(i).fn) == g_names.contact) return;  // part of a contact
+  std::string key = "TakeDamage | " + ue3::ClassNameOf(self) + " | " + StackSig(1, 3);
+  AuditRow& r = g_audit[key];
+  if (++r.hits == 1) LOG("visuals: audit NEW NO SHAPE [%s]", key.c_str());
 }
 
 // ------------------------------------------------------------------ triggers
@@ -833,9 +1208,10 @@ void ScanTick(const game::World& w) {
     uintptr_t o = ue3::Object(i);
     if (!o) continue;
     uint32_t f = Flags(o);
-    if (!(f & (kSequenceEvent | kWall))) continue;
+    if (!(f & (kSequenceEvent | kWall | kPainVolume))) continue;
     if (ue3::ObjName(o).rfind("Default__", 0) == 0) continue;
     if (f & kWall) g_scan.walls.push_back(o);
+    if (f & kPainVolume) g_scan.pains.push_back(o);
     if (f & kTouchEvent) g_scan.events.push_back(o);
     if (f & kRemoteEvent) {
       ue3::FNameRaw nm{};
@@ -851,6 +1227,11 @@ void ScanTick(const game::World& w) {
   g_walls.clear();
   for (uintptr_t a : g_scan.walls)
     if (game::Alive(a) && levels.count(ue3::ObjOuter(a))) g_walls.push_back(a);
+  size_t oldPains = g_pains.size();
+  g_pains.clear();
+  for (uintptr_t a : g_scan.pains)
+    if (game::Alive(a) && levels.count(ue3::ObjOuter(a))) g_pains.push_back(a);
+  if (g_pains.size() != oldPains) LOG("visuals: %zu pain volumes on %s", g_pains.size(), w.map.c_str());
   std::vector<Trigger> out;
   for (uintptr_t ev : g_scan.events) {
     uintptr_t orig = GetObj(ev, "Originator");
@@ -984,8 +1365,8 @@ const ConvexShape& ConvexOf(uintptr_t brush) {
 // Shape of a trigger / wall actor: its collision component (cylinder / brush), else its bounds. fade: the farther
 // from the camera, the fainter (walls of other rooms show through the near ones otherwise).
 // grid: the 1 m grid on the faces too (walls nearer than 25 m).
-bool DrawVolume(const Sink& sink, uintptr_t actor, const game::Pov& cam, float maxDist, Vec& top, bool fade = false,
-                bool grid = false) {
+bool DrawVolume(const Sink& sink, uintptr_t actor, const game::Pov& cam, float maxDist, Vec& top, bool fade,
+                bool grid) {
   uintptr_t comp = GetObj(actor, "CollisionComponent");
   if (!comp) return false;
   // PrimitiveComponent.Bounds = BoxSphereBounds { Origin, BoxExtent, SphereRadius }
@@ -1052,9 +1433,15 @@ void ClearWorld() {
   g_ghosts.clear();
   g_strikes.clear();
   g_projectiles.clear();
+  g_areas.clear();
+  g_ballistics.clear();
+  g_envAttackers.clear();
+  g_attackActors.clear();
+  g_charges.clear();
   g_markers.clear();
   g_triggers.clear();
   g_walls.clear();
+  g_pains.clear();
   g_trigCount.clear();
   g_fired.clear();
   g_convex.clear();
@@ -1075,6 +1462,8 @@ uint32_t Color(Cat c) {
     case Cat::Arena: return Rgba(70, 235, 100);
     case Cat::OtherTrigger: return Rgba(175, 175, 175);
     case Cat::Walls: return Rgba(255, 225, 40);
+    case Cat::Area: return Rgba(0, 235, 200);   // explosions & damage zones: teal
+    case Cat::Hazard: return Rgba(185, 255, 60);  // level hazards: lime
     default: return Rgba(255, 255, 255);
   }
 }
@@ -1085,6 +1474,7 @@ void SetOn(Cat c, bool on) { g_on[(int)c] = on; }
 bool On(Cat c) { return g_on[(int)c]; }
 void SetMoveCapsule(bool enemies, bool on) { g_moveCapsule[enemies ? 0 : 1] = on; }
 void SetLinger(float s) { g_linger = std::clamp(s, 0.0f, 3.0f); }
+void SetAreaLinger(float s) { g_areaLinger = std::clamp(s, 0.0f, 10.0f); }
 void SetWallGrid(bool on) { g_wallGrid = on; }
 void SetOcclusionLive(bool ok) { g_occLive = ok; }
 bool OcclusionLive() { return g_occLive; }
@@ -1118,16 +1508,52 @@ nlohmann::json SaveJson() {
   return {{"labels", o.labels}, {"max_distance", o.maxDistance}, {"thickness", o.thickness}, {"occlude", o.occlude}};
 }
 
-bool WantsEvents() { return g_on[(int)Cat::Hitbox] || g_on[(int)Cat::HitMarker]; }
+bool WantsEvents() { return g_on[(int)Cat::Hitbox] || g_on[(int)Cat::HitMarker] || g_on[(int)Cat::Area] || g_auditOn; }
 
 void OnEvent(uintptr_t self, uintptr_t fn, void* parms, bool after) {
   if (!WantsEvents() || !game::W().mission) return;
   if (!g_names.ok) {
     g_names.Resolve();
     if (!g_names.ok) return;
+    g_auditTakeDamage = ue3::FindNameIndex("TakeDamage");
   }
   int n = ue3::ObjNameIndex(fn);
   bool hitbox = g_on[(int)Cat::Hitbox];
+  if (g_on[(int)Cat::Hitbox] && (n == g_names.tick || n == g_names.preBegin || n == g_names.postBegin ||
+                                  n == g_names.touch || n == g_names.destroyed) &&
+      (Flags(self) & kAttackActor)) {
+    if (n == g_names.destroyed) g_attackActors.erase(self);
+    else g_attackActors.insert(self);
+  }
+  if (g_on[(int)Cat::Hitbox] && (n == g_names.onStart || n == g_names.onTick || n == g_names.cleanup) &&
+      (Flags(self) & kChargeAction)) {
+    if (n == g_names.cleanup) g_charges.erase(self);
+    else g_charges[self] = g_clock;
+  }
+  if (g_on[(int)Cat::Area] && (n == g_names.tick || n == g_names.destroyed || n == g_names.damageTick ||
+                                n == g_names.preBegin || n == g_names.afterDelay)) {
+    uint32_t f = Flags(self);
+    if (f & kEnvAttacker) {
+      if (n == g_names.destroyed) g_envAttackers.erase(self);
+      else g_envAttackers.insert(self);
+    }
+    if (f & kBallistic) {  // grenades and bombs: known from their first event on, drawn every frame while alive
+      if (n == g_names.destroyed) g_ballistics.erase(self);
+      else g_ballistics.insert(self);
+    }
+    if (f & (kExplosion | kRadialDamager)) {
+      // explosions: every tick after it ran (radius grows), and at Destroyed (one-tick explosions are destroyed in
+      // the frame they went off); damage zones: before each DamageTick (the hit check)
+      if (n == g_names.destroyed && !after) {
+        CaptureArea(self, true);
+        g_areas[self].active = false;
+      } else if (n == g_names.tick && after && (f & kExplosion)) {
+        CaptureArea(self);
+      } else if ((n == g_names.damageTick || n == g_names.afterDelay) && !after && (f & kRadialDamager)) {
+        CaptureArea(self, true);
+      }
+    }
+  }
   if (!after) {
     if (n == g_names.started && hitbox && (Flags(self) & kStrikeProc)) {
       Strike st;
@@ -1157,7 +1583,29 @@ void OnEvent(uintptr_t self, uintptr_t fn, void* parms, bool after) {
         if (markers && (valid & 1)) AddMarker(*reinterpret_cast<const Vec*>((const uint8_t*)parms + 0xC), IsDante(owner));
       } else if (n == g_names.contact) {
         uintptr_t contact = *reinterpret_cast<const uintptr_t*>(parms);
-        if (ue3::IsObject(contact)) OnContact(self, contact, markers, hitbox);
+        if (ue3::IsObject(contact)) {
+          // a hit from an explosion / damage zone: its shape now (one-tick explosions have no tick before this)
+          uintptr_t minion = GetObj(contact, "OriginatorMinion");
+          if (g_testSrc && IsDante(GetObj(self, "Owner")) &&
+              (minion == g_testSrc ||
+               game::GetStr(contact, "DefinitionPathName").find(g_testName + ":") != std::string::npos)) {  // Dev: area test
+            ++g_testHits;
+            g_testDmg += GetFloat(contact, "DamageAmount");
+            Vec d{}, a{};  // where Dante stood at this hit (he may be pushed around by earlier hits)
+            if (ActorLoc(GetObj(self, "Owner"), d) && ActorLoc(g_testSrc, a)) {
+              float h = Len(Vec{d.x - a.x, d.y - a.y, 0});
+              g_testMin = std::min(g_testMin, h), g_testMax = std::max(g_testMax, h);
+            }
+          }
+          if (minion && g_on[(int)Cat::Area] && (Flags(minion) & (kExplosion | kRadialDamager))) CaptureArea(minion, true);
+          if (g_auditOn) {
+            uintptr_t attacker = GetObj(contact, "OriginatorActor");
+            AuditHit(self, contact, !(g_lastVolumeHit.t == g_clock && g_lastVolumeHit.owner == attacker));
+          }
+          OnContact(self, contact, markers, hitbox);
+        }
+      } else if (g_auditOn && n == g_auditTakeDamage) {
+        AuditTakeDamage(self);
       }
     }
   } else if (hitbox) {
@@ -1212,15 +1660,103 @@ void OnFrame(const game::World& w) {
     it = game::Alive(it->first) ? std::next(it) : g_strikes.erase(it);
   for (auto it = g_projectiles.begin(); it != g_projectiles.end();)
     it = game::Alive(it->first) && g_clock - it->second < 0.5 ? std::next(it) : g_projectiles.erase(it);
-  if (!g_on[(int)Cat::Hitbox]) g_ghosts.clear();
+  for (auto it = g_areas.begin(); it != g_areas.end();)
+    it = game::Alive(it->first) && g_clock - it->second.lastCapture < 5.0 ? std::next(it) : g_areas.erase(it);
+  if (!g_on[(int)Cat::Area]) g_areas.clear();
+  if (!g_on[(int)Cat::Hitbox] || !g_on[(int)Cat::Area]) {
+    bool keepHit = g_on[(int)Cat::Hitbox], keepArea = g_on[(int)Cat::Area];
+    g_ghosts.erase(std::remove_if(g_ghosts.begin(), g_ghosts.end(),
+                                  [&](const Ghost& g) { return g.area ? !keepArea : !keepHit; }),
+                   g_ghosts.end());
+  }
+  if (g_on[(int)Cat::Hitbox]) {
+    // charges: while the pawn runs at Dante, its movement capsule is the hitbox (DVAction_ChargeableEnemy_Attack:
+    // Touch / CollisionNotify of the pawn itself)
+    for (auto it = g_charges.begin(); it != g_charges.end();) {
+      uintptr_t act = it->first;
+      if (!game::Alive(act) || g_clock - it->second > 0.5) {
+        it = g_charges.erase(it);
+        continue;
+      }
+      ++it;
+      uintptr_t pawn = GetObj(act, "m_OwningPawn");
+      if (!pawn || !GetBool(act, "m_bStartedCharge")) continue;
+      double& last = g_projectiles[act];
+      if (last > 0 && g_clock - last < 1.0 / 60.0) continue;
+      last = g_clock;
+      game::Field wc = game::FieldOf(pawn, "worldCollision");
+      Vec loc{}, off{};
+      float hr[2];
+      if (!wc.ok() || !ActorLoc(pawn, loc) || !util::Read(pawn + wc.off + 4, off) ||
+          !util::SafeRead(pawn + wc.off + 0x10, hr, 8) || hr[0] <= 1 || hr[1] <= 1 || hr[0] > 5000)
+        continue;
+      Ghost g;
+      g.key = act;
+      g.t = g_clock;
+      g.col = IsDante(pawn) ? Color(Cat::Hitbox) : EnemyHitboxColor();
+      Cylinder(Sink{&g.lines, g.col}, loc + off + Vec{0, 0, hr[0]}, hr[1], hr[0]);
+      g.label = "Charge (body hits)";
+      g.labelAt = loc + off + Vec{0, 0, hr[0] * 2};
+      g_ghosts.push_back(std::move(g));
+    }
+    for (auto it = g_attackActors.begin(); it != g_attackActors.end();) {
+      uintptr_t a = *it;
+      if (!game::Alive(a) || GetBool(a, "bDeleteMe")) {
+        it = g_attackActors.erase(it);
+        continue;
+      }
+      ++it;
+      Vec loc{};
+      if (ActorLoc(a, loc) && InRange(f->cam, loc, maxDist, 500)) CaptureAttackActor(a, f->cam);
+    }
+  } else {
+    g_attackActors.clear();
+    g_charges.clear();
+  }
+  float areaLinger = g_areaLinger;
+  if (g_on[(int)Cat::Area]) {
+    CaptureDtWave(w.pawn);
+    for (auto it = g_envAttackers.begin(); it != g_envAttackers.end();) {
+      if (!game::Alive(*it) || GetBool(*it, "bDeleteMe")) {
+        it = g_envAttackers.erase(it);
+        continue;
+      }
+      CaptureArea(*it);
+      ++it;
+    }
+    for (uintptr_t e : enemies::ActiveEnemies(w)) CaptureDtWave(e);
+    for (auto it = g_ballistics.begin(); it != g_ballistics.end();) {
+      uintptr_t b = *it;
+      if (!game::Alive(b) || GetBool(b, "bDeleteMe")) {
+        it = g_ballistics.erase(it);
+        continue;
+      }
+      ++it;
+      Vec loc{};
+      if (!ActorLoc(b, loc) || !InRange(f->cam, loc, maxDist, 500)) continue;
+      Vec top{};
+      uintptr_t owner = GetObj(b, "m_OwningPawn");
+      BallisticLines(Sink{&f->lines, Color(Cat::Area)}, b, top);
+      if (opt.labels) f->labels.push_back({top, Color(Cat::Area), IsDante(owner) ? "Bomb" : "Grenade"});
+      ++st.areas;
+    }
+  } else {
+    g_ballistics.clear();
+    g_envAttackers.clear();
+  }
   std::unordered_map<uintptr_t, double> newest;
   for (const Ghost& g : g_ghosts) newest[g.key] = std::max(newest[g.key], g.t);
   std::deque<Ghost> keep;
   for (Ghost& g : g_ghosts) {
     bool active = g_strikes.count(g.key) || g_projectiles.count(g.key);
-    bool latest = newest[g.key] == g.t;
     double age = g_clock - g.t;
-    float life = std::max(linger, g.minLife);
+    if (g.area) {
+      auto a = g_areas.find(g.key);
+      active = a != g_areas.end() && a->second.active && age <= a->second.hold;
+    }
+    bool latest = newest[g.key] == g.t;
+    if (g.area && !latest) continue;  // a growing explosion: only its current size (no trail of older spheres)
+    float life = std::max(g.area ? areaLinger : linger, g.minLife);
     float alpha;
     if (active && latest) alpha = 1.0f;  // still checking hits
     else if (life > 0 && age <= life) alpha = 0.85f * (1.0f - (float)(age / life)) + 0.1f;
@@ -1228,7 +1764,7 @@ void OnFrame(const game::World& w) {
     if (InRange(f->cam, g.labelAt, maxDist, 500)) {
       for (const Line& l : g.lines) f->lines.push_back({l.a, l.b, WithAlpha(l.col, alpha)});
       if (opt.labels && latest && !g.label.empty()) f->labels.push_back({g.labelAt, WithAlpha(g.col, alpha), g.label});
-      if (latest) ++st.strikes;
+      if (latest) ++(g.area ? st.areas : st.strikes);
     }
     keep.push_back(std::move(g));
   }
@@ -1252,9 +1788,10 @@ void OnFrame(const game::World& w) {
 
   // triggers and invisible walls (one scan finds both; a level that stops being visible hides them at once)
   bool trig = g_on[(int)Cat::Cutscene] || g_on[(int)Cat::Arena] || g_on[(int)Cat::OtherTrigger];
-  bool walls = g_on[(int)Cat::Walls];
+  bool walls = g_on[(int)Cat::Walls], hazards = g_on[(int)Cat::Hazard];
   std::unordered_set<uintptr_t> levels;
-  if (trig || walls) {
+  g_shapeNow.clear();
+  if (trig || walls || hazards) {
     ScanTick(w);
     levels = VisibleLevels(w);
   }
@@ -1278,6 +1815,46 @@ void OnFrame(const game::World& w) {
       ++st.walls;
       Vec top{};
       DrawVolume(s, a, f->cam, maxDist, top, true, g_wallGrid);
+    }
+  }
+  // NTPainVolume.CanDamage: ExcludeClasses first, then IncludeClasses, else bAllClassesIncluded.
+  auto hurtsDante = [&](uintptr_t vol) {
+    uintptr_t dc = w.pawn ? ue3::ObjClass(w.pawn) : 0;
+    if (!dc) return true;
+    auto inList = [&](const char* field) {
+      ue3::TArrayRaw l{};
+      if (!ReadArr(vol, field, l)) return -1;
+      for (int i = 0; i < l.num && i < 32; ++i) {
+        uintptr_t c = util::ReadOr<uintptr_t>(l.data + i * 4);
+        if (c && ue3::IsObject(c) && ue3::IsChildOf(dc, ue3::ObjName(c).c_str())) return 1;
+      }
+      return l.num > 0 ? 0 : -1;  // -1: empty list
+    };
+    if (inList("ExcludeClasses") == 1) return false;
+    int inc = inList("IncludeClasses");
+    if (inc == 1) return true;
+    return GetBool(vol, "bAllClassesIncluded");
+  };
+  if (hazards) {
+    // Level hazards: pain volumes (NTPainVolume / DVPainVolume) - fire, spikes, poison of the level. They hurt what
+    // touches the volume (entry damage, then every m_fDamageInterval s); faint with "(off)" while switched off.
+    for (uintptr_t a : g_pains) {
+      if (!game::Alive(a) || !levels.count(ue3::ObjOuter(a)) || GetBool(a, "bDeleteMe")) continue;
+      bool on = GetBool(a, "bEnabled") && GetBool(a, "bCollideActors");
+      bool dante = hurtsDante(a);  // some are kill zones for enemies only (pits Dante can knock them into)
+      uint32_t col = WithAlpha(Color(Cat::Hazard), on && dante ? 1.0f : 0.3f);
+      uint32_t group = (uint32_t)a;
+      Vec top{};
+      if (!DrawVolume(Sink{&f->lines, col, opt.occlude, group}, a, f->cam, maxDist, top, false, false)) continue;
+      ++st.hazards;
+      if (on) g_shapeNow.insert(a);
+      if (opt.labels) {
+        char b[64];
+        float iv = GetFloat(a, "m_fDamageInterval");
+        if (GetBool(a, "bDamageOverTime") && iv > 0) snprintf(b, sizeof b, "Hazard: hurts every %.1f s", iv);
+        else snprintf(b, sizeof b, "Hazard: hurts on touch");
+        f->labels.push_back({top, col, !on ? std::string(b) + " (off)" : !dante ? "Hazard: enemies only" : std::string(b), group});
+      }
     }
   }
   if (trig) {
@@ -1319,10 +1896,11 @@ void OnFrame(const game::World& w) {
   } else if (!walls && !g_triggers.empty()) {  // the wall scan keeps the list: no rebuild every scan
     g_triggers.clear();
   }
-  if (!trig && !walls && (g_scan.running || g_nextScan)) {
+  if (!trig && !walls && !hazards && (g_scan.running || g_nextScan)) {
     g_scan = Scan{};
     g_nextScan = 0;
     g_walls.clear();
+    g_pains.clear();
   }
 
   QueryPerformanceCounter(&q1);
@@ -1448,6 +2026,57 @@ void Draw() {
   g_stats.labelsHidden = labelsHidden;
 }
 
+// Dev / autorun: spawns the game's own explosion (NTExplosionParameters) or damage zone (DVRadialDamagerParameters)
+// named paramsName at Dante's feet + (dx, 0, dz) and sets it off; AreaTestResult() then tells how often it hit him.
+std::string AreaTest(const std::string& paramsName, float dx, float dz) {
+  uintptr_t dante = game::W().pawn;
+  if (!dante) return "no Dante";
+  uintptr_t par = 0;
+  for (const char* cls : {"NTExplosionParameters", "DVExplosionParameters", "DVRadialDamagerParameters"})
+    if (!par) par = ue3::FindObject(cls, paramsName.c_str());
+  if (!par) return "parameters not found: " + paramsName;
+  bool radial = ue3::IsChildOf(ue3::ObjClass(par), "DVRadialDamagerParameters");
+  uintptr_t cls = GetObj(par, radial ? "DamagerClass" : "ExplosionClass");
+  Vec loc{};
+  int rot[3] = {0, 0, 0};
+  game::Field fr = game::FieldOf(dante, "Rotation");
+  if (!cls || !ActorLoc(dante, loc) || !fr.ok() || !util::SafeRead(dante + fr.off, rot, 12)) return "no class / location";
+  int yaw[3] = {0, rot[1], 0};
+  loc = loc + FromRot(yaw).x * dx + Vec{0, 0, dz};  // dx ahead of Dante (in view of the camera behind him)
+  engine::Call sp(dante, "Spawn");
+  if (!sp.Valid()) return "no Spawn";
+  sp.Obj("SpawnClass", cls).Raw("SpawnLocation", &loc, 12).Bool("bNoCollisionFail", true);
+  if (!sp.Invoke() || !sp.RetData()) return "spawn failed: " + sp.Error();
+  uintptr_t a = *reinterpret_cast<const uintptr_t*>(sp.RetData());
+  if (!ue3::IsObject(a)) return "spawn returned nothing";
+  g_testSrc = a;
+  g_testName = paramsName;
+  g_testHits = 0;
+  g_testDmg = 0;
+  g_testMin = 1e9f, g_testMax = 0;
+  engine::Call in(a, "Initialise");
+  in.Raw(in.ParamName(0).c_str(), &par, 4);
+  if (!in.Invoke()) return "Initialise failed: " + in.Error();
+  engine::Call go(a, radial ? "StartDamage" : "Explode");
+  if (!go.Invoke()) return "start failed: " + go.Error();
+  char b[320];
+  Vec dl{};
+  ActorLoc(dante, dl);
+  Vec ea{};
+  ActorLoc(a, ea);
+  snprintf(b, sizeof b, "%s %s at dx %.0f dz %.0f (reach %.0f; Dante's feet %.0f away, %.0f below)", ue3::ClassNameOf(a).c_str(),
+           paramsName.c_str(), dx, dz,
+           radial ? [&] { float r = 0; ReadAt(par, "CombatDamageData", r); return r; }() : ExplosionReach(par),
+           Len(Vec{ea.x - dl.x, ea.y - dl.y, 0}), ea.z - dl.z);
+  return b;
+}
+std::string AreaTestResult() {
+  char b[160];
+  snprintf(b, sizeof b, "hits on Dante %d, damage %.0f, Dante's feet %.0f..%.0f from it at the hits", g_testHits, g_testDmg,
+           g_testHits ? g_testMin : 0.0f, g_testMax);
+  return b;
+}
+
 Stats GetStats() {
   std::lock_guard<std::mutex> lk(g_statMu);
   return g_stats;
@@ -1455,6 +2084,31 @@ Stats GetStats() {
 
 std::vector<std::string> DebugLines(const std::string& what) {
   std::vector<std::string> out;
+  if (what.rfind("audit", 0) == 0) {  // audit 1 | 0 | clear | (nothing: the table)
+    std::string a = what.size() > 6 ? what.substr(6) : "";
+    if (a == "1" || a == "0") g_auditOn = a == "1";
+    if (a == "clear" || a == "1") g_audit.clear();
+    int hits = 0, shape = 0, line = 0;
+    int other = 0;  // not damage (Kill all, parry checks) - not counted
+    for (auto& [k, r] : g_audit) {
+      if (k.rfind("tool/", 0) == 0 || k.rfind("no damage", 0) == 0) {
+        other += r.hits;
+        continue;
+      }
+      hits += r.hits, shape += r.shape, line += r.line;
+    }
+    char b[256];
+    snprintf(b, sizeof b, "audit %s: %d hits, %d with a shape, %d with a line only, %d without anything (%zu sources; "
+             "%d contacts without damage not counted)", g_auditOn ? "on" : "off", hits, shape, line, hits - shape - line,
+             g_audit.size(), other);
+    out.push_back(b);
+    if (a == "full")
+      for (auto& [k, r] : g_audit) {
+        snprintf(b, sizeof b, "audit row: hits %d shape %d line %d none %d | ", r.hits, r.shape, r.line, r.hits - r.shape - r.line);
+        out.push_back(b + k + " | def " + r.example);
+      }
+    return out;
+  }
   if (what.rfind("probe", 0) == 0) {
     g_probe = what.size() > 6 ? atoi(what.c_str() + 6) : 10;
     g_probed.clear();
@@ -1464,9 +2118,9 @@ std::vector<std::string> DebugLines(const std::string& what) {
   Stats st = GetStats();
   char b[512];
   snprintf(b, sizeof b,
-           "lines %d labels %d (hidden behind walls %d) bodies %d strikes %d markers %d triggers c%d a%d o%d walls %d "
+           "lines %d labels %d (hidden behind walls %d) bodies %d strikes %d areas %d hazards %d markers %d triggers c%d a%d o%d walls %d "
            "collect %.2f ms draw %.2f ms hiding %s",
-           st.lines, st.labels, st.labelsHidden, st.bodies, st.strikes, st.markers, st.triggers[0], st.triggers[1],
+           st.lines, st.labels, st.labelsHidden, st.bodies, st.strikes, st.areas, st.hazards, st.markers, st.triggers[0], st.triggers[1],
            st.triggers[2], st.walls, st.collectMs, st.drawMs, g_occLive ? "works" : "not available");
   out.push_back(b);
   if (what == "reach") {  // what the "other" triggers lead to: script node classes, by number of triggers
@@ -1489,6 +2143,15 @@ std::vector<std::string> DebugLines(const std::string& what) {
     for (size_t i = 0; i < top.size() && i < 40; ++i) line += " " + top[i].second + "=" + std::to_string(top[i].first);
     out.push_back(line);
   }
+  if (what == "hazards")
+    for (uintptr_t a : g_pains) {
+      Vec loc{};
+      ActorLoc(a, loc);
+      snprintf(b, sizeof b, "hazard %s %s at (%.0f %.0f %.0f) enabled %d collide %d over_time %d interval %.2f", ue3::ClassNameOf(a).c_str(),
+               ue3::ObjName(a).c_str(), loc.x, loc.y, loc.z, GetBool(a, "bEnabled"), GetBool(a, "bCollideActors"),
+               GetBool(a, "bDamageOverTime"), GetFloat(a, "m_fDamageInterval"));
+      out.push_back(b);
+    }
   if (what == "walls")
     for (uintptr_t a : g_walls) {
       Vec loc{};

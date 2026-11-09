@@ -97,6 +97,19 @@ void SetFrameCallback(void (*fn)());
 using EventHook = void (*)(void* self, void* fn, void* parms);
 void SetEventHook(EventHook h);
 void SetEventHookAfter(EventHook h);  // same, right after the original returned (results of the call)
+// Runs first (before the observer). Returning true skips the call: the original and the "after" hook do not run,
+// the parameter buffer (return value included) is what the veto left in it. Game thread, must be cheap.
+using EventVeto = bool (*)(void* self, void* fn, void* parms);
+void SetEventVeto(EventVeto v);
+
+// ProcessEvent calls in progress on the calling thread: 0 = innermost (the call being observed). Script-to-script
+// calls do not go through ProcessEvent, so these are events, timers, ticks and delegates only.
+struct EventFrame {
+  void* self;
+  void* fn;
+};
+int EventDepth();
+EventFrame EventAt(int fromInnermost);
 
 // Optional ProcessEvent log (debug.pe_log): lines with "Object.Function" containing any filter substring.
 void SetPeLog(bool on, const std::string& commaSeparatedFilter);

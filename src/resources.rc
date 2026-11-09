@@ -1,2 +1,8 @@
 // Navigation catalog built into the DLL (nav.cpp: FindResource(101, RT_RCDATA)).
 101 RCDATA "../data/missions.json"
+// Fonts (SIL Open Font License 1.1: third_party/fonts/OFL_*.txt) and the Easter egg picture (ui.cpp).
+102 RCDATA "../third_party/fonts/JetBrainsMono-Regular.ttf"
+103 RCDATA "../third_party/fonts/JetBrainsMono-Bold.ttf"
+104 RCDATA "../third_party/fonts/BarlowCondensed-Bold.ttf"
+105 RCDATA "../third_party/fonts/BarlowCondensed-ExtraBold.ttf"
+106 RCDATA "../data/razium.png"

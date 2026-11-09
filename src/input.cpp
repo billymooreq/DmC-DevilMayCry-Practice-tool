@@ -122,15 +122,18 @@ void AttachWindow(HWND hwnd) {
 void OnFrame(HWND hwnd) {
   bool fg = IsGameForeground(hwnd);
 
-  if (!hotkeys::Capturing()) {
-    static bool prev = false;
-    bool down = KeyDown(g_cfg.menuKey);
-    if (down && !prev && fg) {
+  {
+    static bool prev = false, wasCapturing = false;
+    bool capturing = hotkeys::Capturing();
+    bool down = hotkeys::Held(g_cfg.menuKey);
+    if (wasCapturing && !capturing) prev = down;  // the press that just set the menu key does not toggle the menu
+    if (!capturing && down && !prev && fg) {
       state::menuOpen = !state::menuOpen;
       LOG("menu %s", state::menuOpen ? "opened" : "closed");
       if (state::menuOpen && oClipCursor) oClipCursor(nullptr);
     }
     prev = down;
+    wasCapturing = capturing;
   }
   hotkeys::Poll(fg);
 

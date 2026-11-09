@@ -5,6 +5,7 @@
 #include "enemies.h"
 #include "features.h"
 #include "log.h"
+#include "nav.h"
 
 namespace features {
 namespace {
@@ -30,8 +31,8 @@ class SpawnEnemy : public EnemyAction {
   SpawnEnemy() : EnemyAction(enemies::Action::Spawn) {
     id = "enemy_spawn";
     name = "Spawn";
-    help = "Spawns the enemy picked above, as many as set, in front of Dante or at a saved position. An enemy this "
-           "level does not have is loaded first (a second or two). Despawn spawned removes them again.";
+    help = "Spawns the enemies picked above, in front of Dante or at an enemy position. An enemy this level does "
+           "not have is loaded first (a second or two).";
   }
   void Run(const Ctx& c) override { enemies::Spawn(c.w); }
 };
@@ -41,8 +42,8 @@ class KillAllEnemies : public EnemyAction {
   KillAllEnemies() : EnemyAction(enemies::Action::KillAll) {
     id = "enemy_kill_all";
     name = "Kill all enemies";
-    help = "Every enemy that is alive now dies at once, also with Infinite enemy HP on. Allies (like Kat) are "
-           "not hurt.";
+    help = "Click to kill every enemy on the map right now, also with Infinite enemy HP on. Allies (like Kat) "
+           "are not hurt.";
   }
   void Run(const Ctx& c) override { enemies::KillAll(c.w); }
 };
@@ -52,9 +53,43 @@ class DespawnEnemies : public EnemyAction {
   DespawnEnemies() : EnemyAction(enemies::Action::Despawn) {
     id = "enemy_despawn";
     name = "Despawn spawned";
-    help = "Removes only the enemies you spawned with this tool (no kill, no orbs). The level's own enemies stay.";
+    help = "Removes only the enemies you spawned (no kill, no orbs). The level's own enemies stay.";
   }
   void Run(const Ctx& c) override { enemies::DespawnSpawned(c.w); }
+};
+
+// "Save here as N": where Dante stands now becomes enemy position N (4..6) - the one picked on the Enemies tab
+// (Where = a position), else 4. Menu button, key and preset.
+class SaveEnemyPosition : public Feature {
+ public:
+  SaveEnemyPosition() {
+    id = "enemy_save_pos";
+    name = "Save enemy position (Save here as N)";
+    action = true;
+    group = Group::EnemyTools;
+    help = "Saves where Dante stands now as an enemy position: the one picked on the Enemies tab (else 4). Does not "
+           "touch Dante's slots 1-3.";
+  }
+  std::string Blocked() const override { return nav::Blocked(nav::Action::SavePos); }
+  void Run(const Ctx& c) override {
+    enemies::Selection s = enemies::GetSel();
+    nav::SavePos(c.w, s.where == 1 ? s.posSlot : nav::kPosSlots);
+  }
+};
+
+class ClearDamageLog : public Feature {
+ public:
+  ClearDamageLog() {
+    id = "damage_log_clear";
+    name = "Clear damage log";
+    action = true;
+    anywhere = true;
+    frontEndOk = true;
+    noOverlay = true;  // empties the tool's own list, the game is not touched
+    group = Group::DamageLog;
+    help = "Empties the damage log.";
+  }
+  void Run(const Ctx&) override { damagelog::Clear(); }
 };
 
 class InfiniteEnemyHp : public Feature {
@@ -64,9 +99,9 @@ class InfiniteEnemyHp : public Feature {
   InfiniteEnemyHp() {
     id = "enemy_inf_hp";
     name = "Infinite enemy HP";
-    group = Group::EnemyTools;
-    help = "Enemies never lose health and cannot die: a training dummy for combos. They still react to hits, and "
-           "the Damage log still shows every hit. Wins over \"One-hit kills\".";
+    group = Group::Enemies;
+    help = "Enemies never die. Good for long combo practice. Does not work on bosses.\n"
+           "Has priority over One-hit kills.";
   }
   void Tick(const Ctx& c) override {
     // The game's own god mode on the enemy's controller (what the dev command AIGod sets): TakeDamage skips the
@@ -92,7 +127,7 @@ class ShowEnemyHp : public Feature {
     id = "enemy_show_hp";
     name = "Show enemy HP";
     group = Group::EnemyTools;
-    help = "Shows each enemy's health as a number above its head.";
+    help = "Health above each enemy's head. Infinite enemy HP is in Cheats.";
   }
   bool Enable(const Ctx&) override {
     enemies::SetShowHp(true);
@@ -105,11 +140,10 @@ class DamageLog : public Feature {
  public:
   DamageLog() {
     id = "damage_log";
-    name = "Damage log";
+    name = "Show damage log";
     group = Group::DamageLog;
-    help = "Opens a small window with every hit: who hit whom, the move, the damage. It stays on screen with the "
-           "menu closed. Open the menu to move it with the mouse, filter, clear, see totals per move (Moves tab) or "
-           "save it as a table file (Export CSV).";
+    help = "Opens the damage log window: every hit, its move, damage and the victim's health. Move it with the "
+           "mouse while the menu is open.";
   }
   bool Enable(const Ctx&) override {
     damagelog::SetOn(true);
@@ -122,7 +156,8 @@ class DamageLog : public Feature {
 
 // Menu order on the Practice tab.
 std::vector<Feature*> CreateEnemyFeatures() {
-  return {new SpawnEnemy, new KillAllEnemies, new DespawnEnemies, new InfiniteEnemyHp, new ShowEnemyHp, new DamageLog};
+  return {new InfiniteEnemyHp, new SpawnEnemy,  new KillAllEnemies, new DespawnEnemies, new SaveEnemyPosition,
+          new ShowEnemyHp,     new DamageLog,   new ClearDamageLog};
 }
 
 }  // namespace features

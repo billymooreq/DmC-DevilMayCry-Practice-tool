@@ -13,6 +13,9 @@
 #include "log.h"
 #include "nav.h"
 #include "util.h"
+#include "speedrun.h"
+#include "window_mode.h"
+#include "timers.h"
 #include "visuals.h"
 
 Config g_cfg;
@@ -33,10 +36,19 @@ bool LoadConfig() {
   try {
     json j = json::parse(f);
     Config c;
-    c.menuKey = j.value("menu_key", c.menuKey);
+    c.menuKey.vk = j.value("menu_key", c.menuKey.vk);  // up to 0.10: a keyboard key only
+    if (j.contains("menu_bind")) {
+      hotkeys::Bind b = hotkeys::FromJson(j["menu_bind"]);
+      if (!b.Empty()) c.menuKey = b;
+    }
     c.showDevTab = j.value("show_dev_tab", c.showDevTab);
+    c.pauseInMenu = j.value("pause_in_menu", c.pauseInMenu);
+    c.hideHints = j.value("hide_hints", c.hideHints);
+    c.debugMenu = j.value("debug_menu", c.debugMenu);
+    c.windowMode = std::max(0, winmode::ModeFromKey(j.value("window_mode", std::string("fullscreen")).c_str()));
     c.savesListRows = std::min(40.0f, std::max(2.0f, j.value("saves_list_rows", 6.0f)));
-    if (j.contains("window") && j["window"].is_object()) {
+    // config_version 3 = 0.11: the menu has a new size; a window size saved by an older version is not used
+    if (j.value("config_version", 1) >= 3 && j.contains("window") && j["window"].is_object()) {
       const json& w = j["window"];
       c.winX = w.value("x", 0.0f);
       c.winY = w.value("y", 0.0f);
@@ -69,8 +81,10 @@ bool LoadConfig() {
     if (j.contains("enemies")) enemies::LoadJson(j["enemies"]);
     if (j.contains("damage_log")) damagelog::LoadJson(j["damage_log"]);
     if (j.contains("visuals")) visuals::LoadJson(j["visuals"]);
-    LOG("config: loaded (menu_key=0x%02X render=%s d3d9=%d wndproc=%d dinput=%d xinput=%d cursor=%d presets=%zu)",
-        c.menuKey, c.renderHook.c_str(), c.hookD3D9, c.hookWndProc, c.hookDInput, c.hookXInput, c.hookCursor,
+    if (j.contains("timers")) timers::LoadJson(j["timers"]);
+    if (j.contains("speedrun")) speedrun::LoadJson(j["speedrun"]);
+    LOG("config: loaded (menu_key=%s render=%s d3d9=%d wndproc=%d dinput=%d xinput=%d cursor=%d presets=%zu)",
+        hotkeys::Text(c.menuKey).c_str(), c.renderHook.c_str(), c.hookD3D9, c.hookWndProc, c.hookDInput, c.hookXInput, c.hookCursor,
         c.presets.size());
     return true;
   } catch (const std::exception& e) {
@@ -84,9 +98,14 @@ bool SaveConfig() {
   Config& c = g_cfg;
   features::SaveJson(c.features, c.presets);
   json j;
-  j["config_version"] = 2;
-  j["menu_key"] = c.menuKey;
+  j["config_version"] = 3;
+  j["menu_key"] = c.menuKey.vk;  // read by older versions of the tool
+  j["menu_bind"] = hotkeys::ToJson(c.menuKey);
   j["show_dev_tab"] = c.showDevTab;
+  j["pause_in_menu"] = c.pauseInMenu;
+  j["hide_hints"] = c.hideHints;
+  j["debug_menu"] = c.debugMenu;
+  j["window_mode"] = winmode::ModeKey(c.windowMode);
   j["saves_list_rows"] = c.savesListRows;
   if (c.winW > 0) j["window"] = {{"x", c.winX}, {"y", c.winY}, {"w", c.winW}, {"h", c.winH}};
   j["hooks"] = {{"d3d9", c.hookD3D9},     {"render", c.renderHook}, {"wndproc", c.hookWndProc},
@@ -101,6 +120,8 @@ bool SaveConfig() {
   j["enemies"] = enemies::SaveJson();
   j["damage_log"] = damagelog::SaveJson();
   j["visuals"] = visuals::SaveJson();
+  j["timers"] = timers::SaveJson();
+  j["speedrun"] = speedrun::SaveJson();
   std::ofstream f(ConfigPath(), std::ios::trunc);
   if (!f) {
     LOG("config: cannot write DmCPracticeTool.json");

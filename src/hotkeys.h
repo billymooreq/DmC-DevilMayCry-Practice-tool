@@ -19,6 +19,7 @@ struct Bind {
 };
 std::string Text(const Bind& b);          // "Ctrl+F5", "LB+A", "F5 / LB+A", "" when empty
 bool Overlaps(const Bind& a, const Bind& b);  // same key part or same pad part = conflict
+bool Held(const Bind& b);  // its key (with exactly its modifiers) or all its pad buttons are held now
 nlohmann::json ToJson(const Bind& b);
 Bind FromJson(const nlohmann::json& j);
 
@@ -27,7 +28,7 @@ Bind FromJson(const nlohmann::json& j);
 void Poll(bool gameForeground);
 
 // Capture into *target: the next keyboard key (with held modifiers) or gamepad combination (all buttons held
-// before the first release). Esc cancels. keyboardOnly for the menu key.
+// before the first release). Esc cancels.
 void BeginCapture(Bind* target, bool keyboardOnly = false);
 bool Capturing();
 const Bind* CaptureTarget();

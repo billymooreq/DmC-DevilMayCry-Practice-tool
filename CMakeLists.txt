@@ -45,6 +45,7 @@ add_library(dinput8 SHARED
   src/d3d9_hook.cpp
   src/input.cpp
   src/menu.cpp
+  src/ui.cpp
   src/ue3/ue3.cpp
   src/ue3/dumper.cpp
   src/ue3/engine.cpp
@@ -59,6 +60,13 @@ add_library(dinput8 SHARED
   src/hotkeys.cpp
   src/nav.cpp
   src/nav_features.cpp
+  src/cutscenes.cpp
+  src/camera.cpp
+  src/popups.cpp
+  src/timers.cpp
+  src/speedrun.cpp
+  src/window_mode.cpp
+  src/devtools.cpp
   src/realcp.cpp
   src/cpsets.cpp
   src/enemies.cpp
@@ -70,7 +78,7 @@ add_library(dinput8 SHARED
   src/resources.rc
   src/dinput8.def)
 target_include_directories(dinput8 PRIVATE src ${TP}/nlohmann)
-target_link_libraries(dinput8 PRIVATE minhook imgui d3d9 bcrypt dxguid version)
+target_link_libraries(dinput8 PRIVATE minhook imgui d3d9 bcrypt dxguid version windowscodecs ole32 shell32 winmm)
 set_target_properties(dinput8 PROPERTIES OUTPUT_NAME dinput8)
 # Test build: acts as on an unknown game build (menu works, game features locked) to check that behaviour.
 option(DMCPT_SIMULATE_UNKNOWN_BUILD "Treat every game build as unknown (testing only)" OFF)
@@ -78,7 +86,8 @@ if(DMCPT_SIMULATE_UNKNOWN_BUILD)
   target_compile_definitions(dinput8 PRIVATE DMCPT_SIMULATE_UNKNOWN_BUILD)
 endif()
 # the catalog is built into the DLL: rebuild when it changes
-set_source_files_properties(src/resources.rc PROPERTIES OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/data/missions.json)
+set_source_files_properties(src/resources.rc PROPERTIES OBJECT_DEPENDS
+  "${CMAKE_SOURCE_DIR}/data/missions.json;${CMAKE_SOURCE_DIR}/data/razium.png")
 
 # --- offline test host (not deployed) ---------------------------------------
 add_executable(test_host tests/test_host.cpp)
