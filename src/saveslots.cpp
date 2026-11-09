@@ -25,12 +25,12 @@ using engine::OnGame;
 namespace slots {
 namespace {
 
-// The save slot screen of v1.3 shows the INFO numbers, v1.0 only its text lines (a slot without them is
+// The save slot screen of v1.3 shows the INFO numbers, v1.0 and the non-Steam v1.3 build only its text lines (a slot without them is
 // "NEW SAVE" there, though it loads). Import rebuilds an INFO the running version can't show.
 // A package from the other version is rebuilt too: v1.0 keeps old numbers from an earlier v1.3 save in it.
 bool InfoShownByThisGame(const InfoData& info, const std::string& madeOn = {}) {
   if (!madeOn.empty() && madeOn != GetGameVersion().name) return false;
-  return GetGameVersion().version == GameVersion::Release2013 ? info.hasText : info.valid;
+  return SlotScreenReadsText() ? info.hasText : info.valid;
 }
 
 std::mutex g_mu;  // guards everything below
@@ -777,8 +777,27 @@ bool SignInNow(std::string* err) {
     return c.Invoke();
   });
   LOG("slots: title screen (slot status %d) - BeginSignIn %s", st, called ? "called" : "FAILED");
+  bool pickedGame = false;
   for (int t = 0; called && t < 20000; t += 250) {
     Sleep(250);
+    // With Vergil's Downfall the title goes to "Select game" (Devil May Cry / Vergil's Downfall) first, and the slots
+    // load only after a pick. "Devil May Cry" there = Frontend_Callbacks.OpenSaveSlotScreen (seen on the non-Steam
+    // v1.3; the same function is in the Steam builds).
+    if (!pickedGame && t >= 3000) {
+      pickedGame = true;
+      bool ok = OnGame<bool>([] {
+        uintptr_t cls = ue3::FindObject("Class", "DVGFxMovieHandler_Frontend_Callbacks");
+        for (int i = 0, n = ue3::NumObjects(); cls && i < n; ++i) {
+          uintptr_t o = ue3::Object(i);
+          if (o && ue3::ObjClass(o) == cls && ue3::ObjName(o).rfind("Default__", 0) != 0) {
+            engine::Call c(o, "OpenSaveSlotScreen");
+            return c.Invoke();
+          }
+        }
+        return false;
+      }, 3000);
+      LOG("slots: still no slots after 3 s (a game select screen?) - OpenSaveSlotScreen %s", ok ? "called" : "not found");
+    }
     struct R { int status; bool busy; };
     R r = OnGame<R>([ctx] { return R{SlotStatusG(ctx), SaveBusyG(ctx)}; }, 3000);
     st = r.status;

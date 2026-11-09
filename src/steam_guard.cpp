@@ -11,7 +11,9 @@
 
 #include "hooks.h"
 #include "log.h"
+#include "savefile.h"
 #include "util.h"
+#include "version.h"
 
 namespace steam {
 namespace {
@@ -149,7 +151,57 @@ void BlockForSession() {
 }
 int BlockedCount() { return g_blocked; }
 
-std::wstring SaveDir(std::string* how) {
+namespace {
+
+std::wstring EnvDir(const wchar_t* var) {
+  wchar_t buf[MAX_PATH];
+  DWORD n = GetEnvironmentVariableW(var, buf, MAX_PATH);
+  return n && n < MAX_PATH ? std::wstring(buf, n) : std::wstring();
+}
+
+std::wstring ExeDir() {
+  wchar_t exe[MAX_PATH];
+  DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+  std::wstring d(exe, n);
+  return d.substr(0, d.find_last_of(L'\\'));
+}
+
+// Folders Steam emulators keep "Steam Cloud" files in, most likely first. RELOADED / 3DM (steam_api.ini):
+// %ProgramData%\Steam\<UserName>\<AppId>\storage.
+std::vector<std::wstring> EmulatorDirs() {
+  std::vector<std::wstring> out;
+  auto add = [&](const std::wstring& d) {
+    for (const auto& x : out)
+      if (_wcsicmp(x.c_str(), d.c_str()) == 0) return;
+    out.push_back(d);
+  };
+  std::wstring pd = EnvDir(L"ProgramData"), ad = EnvDir(L"APPDATA"), pub = EnvDir(L"PUBLIC");
+  wchar_t user[256] = {};
+  std::wstring ini = ExeDir() + L"\\steam_api.ini";
+  if (GetPrivateProfileStringW(L"Settings", L"UserName", L"", user, 256, ini.c_str()) && user[0] && !pd.empty())
+    add(pd + L"\\Steam\\" + user + L"\\220440\\storage");
+  auto scan = [&](const std::wstring& root, const wchar_t* tail) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((root + L"\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+      if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && fd.cFileName[0] != L'.')
+        add(root + L"\\" + fd.cFileName + tail);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+  };
+  if (!pd.empty()) scan(pd + L"\\Steam", L"\\220440\\storage");
+  if (!pub.empty()) scan(pub + L"\\Documents\\Steam", L"\\220440\\remote");  // CODEX
+  if (!ad.empty()) add(ad + L"\\Goldberg SteamEmu Saves\\220440\\remote");
+  if (!ad.empty()) add(ad + L"\\SmartSteamEmu\\220440\\remote");
+  add(ExeDir() + L"\\steam_settings\\remote");
+  return out;
+}
+
+bool SameThroughApi(const std::wstring& dir);  // below: a save in dir reads the same through FileRead
+
+// Steam's own save folder: <Steam>\userdata\<ActiveUser>\220440\remote, else the newest userdata folder with saves.
+std::wstring SteamUserdataDir(std::string* how) {
   std::wstring steamPath;
   DWORD user = 0, size = sizeof user;
   bool havePath = RegString(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", steamPath);
@@ -182,6 +234,75 @@ std::wstring SaveDir(std::string* how) {
   }
   if (how) *how = "newest userdata folder";
   return best;
+}
+
+// The game's steam_api.dll is Valve's (not an emulator's): a repack that runs through the real Steam client.
+bool ValveSteamApi() {
+  HMODULE api = GetModuleHandleW(L"steam_api.dll");
+  wchar_t path[MAX_PATH];
+  if (!api || !GetModuleFileNameW(api, path, MAX_PATH)) return false;
+  DWORD dummy = 0, n = GetFileVersionInfoSizeW(path, &dummy);
+  if (!n) return false;
+  std::vector<uint8_t> v(n);
+  if (!GetFileVersionInfoW(path, 0, n, v.data())) return false;
+  struct Lang { WORD lang, cp; }* tr = nullptr;
+  UINT len = 0;
+  if (!VerQueryValueW(v.data(), L"\\VarFileInfo\\Translation", (void**)&tr, &len) || len < sizeof(Lang)) return false;
+  wchar_t key[64];
+  swprintf(key, 64, L"\\StringFileInfo\\%04x%04x\\CompanyName", tr->lang, tr->cp);
+  wchar_t* company = nullptr;
+  if (!VerQueryValueW(v.data(), key, (void**)&company, &len) || !company) return false;
+  return wcsstr(company, L"Valve") != nullptr;
+}
+
+// A non-Steam build: the folder whose save files the game's steam_api.dll returns (an emulator's folder, or Steam's
+// own when a repack runs through the real Steam client); else, unchecked, Steam's folder for Valve's steam_api.dll
+// and the emulator's for an emulator.
+std::wstring NonSteamSaveDir(std::string* how) {
+  std::vector<std::wstring> dirs = EmulatorDirs();
+  std::string sh;
+  std::wstring steamDir = SteamUserdataDir(&sh);
+  for (const auto& d : dirs)
+    if (HasSaves(d) && SameThroughApi(d)) {
+      if (how) *how = "Steam emulator folder (checked through the game's steam_api)";
+      return d;
+    }
+  if (!steamDir.empty() && SameThroughApi(steamDir)) {
+    if (how) *how = "Steam's own folder (checked through the game's steam_api: " + sh + ")";
+    return steamDir;
+  }
+  if (ValveSteamApi()) {
+    if (how) *how = "Steam's own folder (Valve's steam_api.dll, not checked: " + sh + ")";
+    return steamDir;
+  }
+  wchar_t user[256] = {};
+  if (GetPrivateProfileStringW(L"Settings", L"UserName", L"", user, 256, (ExeDir() + L"\\steam_api.ini").c_str()) &&
+      user[0] && !dirs.empty()) {
+    if (how) *how = "Steam emulator folder from steam_api.ini";
+    return dirs[0];
+  }
+  for (const auto& d : dirs)
+    if (HasSaves(d)) {
+      if (how) *how = "Steam emulator folder with saves (not checked)";
+      return d;
+    }
+  if (how) *how = "no Steam emulator save folder found";
+  return {};
+}
+
+}  // namespace
+
+std::wstring SaveDir(std::string* how) {
+  if (!GetGameVersion().nonSteam) return SteamUserdataDir(how);
+  std::string h;
+  std::wstring d = NonSteamSaveDir(&h);
+  static std::wstring logged;
+  if (d != logged) {
+    logged = d;
+    LOG("steam: non-Steam game, save folder %s (%s)", d.empty() ? "-" : util::WideToUtf8(d).c_str(), h.c_str());
+  }
+  if (how) *how = h;
+  return d;
 }
 
 std::wstring BackupSaves(const char* tag, std::string* error) {
@@ -234,8 +355,31 @@ std::wstring BackupSaves(const char* tag, std::string* error) {
   return dst;
 }
 
+uint32_t AccountFromApi();  // below
+
 uint32_t SaveAccountId() {
   std::wstring dir = SaveDir();  // ...\userdata\<id>\220440\remote
+  if (GetGameVersion().nonSteam && dir.find(L"\\userdata\\") == std::wstring::npos) {
+    // The emulator's own (fake) account id: the one in its saves, else what its ISteamUser reports.
+    WIN32_FIND_DATAW fd;
+    HANDLE h = dir.empty() ? INVALID_HANDLE_VALUE : FindFirstFileW((dir + L"\\DMC5_SAVE_*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+      do {
+        FILE* f = _wfopen((dir + L"\\" + fd.cFileName).c_str(), L"rb");
+        if (!f) continue;
+        savefile::Bytes enc(fd.nFileSizeLow);
+        bool ok = !enc.empty() && fread(enc.data(), 1, enc.size(), f) == enc.size();
+        fclose(f);
+        savefile::Header hd{};
+        if (ok && savefile::ParseHeader(savefile::Decrypt(enc), hd, nullptr) && hd.account) {
+          FindClose(h);
+          return hd.account;
+        }
+      } while (FindNextFileW(h, &fd));
+      FindClose(h);
+    }
+    return AccountFromApi();
+  }
   size_t a = dir.find(L"\\userdata\\");
   if (a == std::wstring::npos) return 0;
   return (uint32_t)wcstoul(dir.c_str() + a + 10, nullptr, 10);
@@ -277,7 +421,57 @@ std::mutex g_cloudMu;
 int g_cloudState = 0;  // 0 unknown, 1 verified, -1 failed
 std::string g_cloudWhy;
 
+// FileRead [1] of name into a buffer of the disk file's size: returns true if it matches the bytes on disk.
+bool ReadMatches(void* rs, const std::string& name, const std::vector<uint8_t>& disk, int* got) {
+  void** vt = *reinterpret_cast<void***>(rs);
+  std::vector<uint8_t> buf(disk.size() + 16, 0xCC);
+  uint32_t args[3] = {(uint32_t)(uintptr_t)name.c_str(), (uint32_t)(uintptr_t)buf.data(), (uint32_t)disk.size()};
+  int n = (int)SafeThiscall(rs, vt[1], args, 3);
+  if (got) *got = n;
+  return n == (int)disk.size() && memcmp(buf.data(), disk.data(), disk.size()) == 0;
+}
+
+std::vector<uint8_t> ReadDisk(const std::wstring& path) {
+  std::vector<uint8_t> d;
+  FILE* f = _wfopen(path.c_str(), L"rb");
+  if (!f) return d;
+  fseek(f, 0, SEEK_END);
+  d.resize(ftell(f));
+  fseek(f, 0, SEEK_SET);
+  if (fread(d.data(), 1, d.size(), f) != d.size()) d.clear();
+  fclose(f);
+  return d;
+}
+
+bool SameThroughApi(const std::wstring& dir) {
+  void* rs = RemoteStorage();
+  if (!rs) return false;
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW((dir + L"\\DMC5_SAVE_*_INFO").c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return false;
+  FindClose(h);
+  std::vector<uint8_t> disk = ReadDisk(dir + L"\\" + fd.cFileName);
+  return !disk.empty() && ReadMatches(rs, util::WideToUtf8(fd.cFileName), disk, nullptr);
+}
+
 }  // namespace
+
+// ISteamUser::GetSteamID [2] (returns CSteamID through a hidden pointer, MSVC x86): the low 32 bits = account id.
+uint32_t AccountFromApi() {
+  HMODULE api = GetModuleHandleW(L"steam_api.dll");
+  auto get = api ? (void*(__cdecl*)())GetProcAddress(api, "SteamUser") : nullptr;
+  void* user = get ? get() : nullptr;
+  if (!user) return 0;
+  uint64_t id = 0;
+  uint32_t args[1] = {(uint32_t)(uintptr_t)&id};
+  SafeThiscall(user, (*reinterpret_cast<void***>(user))[2], args, 1);
+  uint32_t acc = (uint32_t)id;
+  // SteamID64 of an individual account: universe 1, type 1, instance 1 in the high 32 bits (0x01100001).
+  bool sane = (uint32_t)(id >> 32) == 0x01100001u && acc != 0;
+  LOG("steam: account id from ISteamUser::GetSteamID: %u (0x%016llX) %s", acc, (unsigned long long)id,
+      sane ? "" : "- not a normal Steam id, not used");
+  return sane ? acc : 0;
+}
 
 bool CloudReady(std::string* why) {
   std::lock_guard<std::mutex> lk(g_cloudMu);
