@@ -64,6 +64,7 @@ add_library(dinput8 SHARED
   src/camera.cpp
   src/popups.cpp
   src/timers.cpp
+  src/inputdisp.cpp
   src/speedrun.cpp
   src/window_mode.cpp
   src/devtools.cpp

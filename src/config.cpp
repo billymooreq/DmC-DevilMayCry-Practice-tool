@@ -15,6 +15,7 @@
 #include "util.h"
 #include "speedrun.h"
 #include "window_mode.h"
+#include "inputdisp.h"
 #include "timers.h"
 #include "visuals.h"
 
@@ -90,6 +91,7 @@ bool LoadConfig() {
     if (j.contains("damage_log")) damagelog::LoadJson(j["damage_log"]);
     if (j.contains("visuals")) visuals::LoadJson(j["visuals"]);
     if (j.contains("timers")) timers::LoadJson(j["timers"]);
+    if (j.contains("input_display")) inputdisp::LoadJson(j["input_display"]);
     if (j.contains("speedrun")) speedrun::LoadJson(j["speedrun"]);
     LOG("config: loaded (menu_key=%s render=%s d3d9=%d wndproc=%d dinput=%d xinput=%d cursor=%d presets=%zu)",
         hotkeys::Text(c.menuKey).c_str(), c.renderHook.c_str(), c.hookD3D9, c.hookWndProc, c.hookDInput, c.hookXInput, c.hookCursor,
@@ -130,6 +132,7 @@ bool SaveConfig() {
   j["damage_log"] = damagelog::SaveJson();
   j["visuals"] = visuals::SaveJson();
   j["timers"] = timers::SaveJson();
+  j["input_display"] = inputdisp::SaveJson();
   j["speedrun"] = speedrun::SaveJson();
   std::ofstream f(ConfigPath(), std::ios::trunc);
   if (!f) {

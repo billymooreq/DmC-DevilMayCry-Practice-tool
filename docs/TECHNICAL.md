@@ -87,6 +87,12 @@ health right after the call returns.
 - Freecam (`src/camera.cpp`): the view of the player controller (`GetPlayerViewPoint`) is replaced by our own camera
   and the game's keyboard / mouse input is muted while flying. Freecam (triggers) and the R / F keys move the
   (hidden or visible) pawn with physics off; when let go, it is held in place until the game moves it.
+- Input display (`src/inputdisp.cpp`) reads the player's `DVInput` once per frame: the buttons the game uses this
+  frame (`m_VirtualButtonsHeld`, one bit per `ENTButton`; two-button combos already merged by the game, e.g. Devil
+  Trigger) and the left stick (`m_vLeftStick_Raw`; W/A/S/D go there too). Actions come from the game's own
+  `DVButtonMap`, key and pad names from its `DMCKbdInputConfig.ini` / `DMCGamepadInputConfig.ini`. Button numbers
+  differ between v1.3 and v1.0, so they are taken by name from the game's `ENTButton` enum. Frames are counted in
+  game time without the world's slow-downs (hit stops), times Game speed; nothing counts while the game is paused.
 - Skip cutscenes calls the game's own cutscene cancel (the same path as its Skip button) while a cutscene plays.
   Skip hints & pop-ups presses the game's own OK callback of the item screen and hides tutorial hints.
 - Timers (`src/timers.cpp`) sample the same two values the community LiveSplit autosplitter reads — the loading flag

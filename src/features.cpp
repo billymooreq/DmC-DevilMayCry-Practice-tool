@@ -15,6 +15,7 @@
 #include "nav.h"
 #include "state.h"
 #include "steam_guard.h"
+#include "inputdisp.h"
 #include "timers.h"
 #include "ue3/engine.h"
 #include "version.h"
@@ -172,6 +173,7 @@ void OnFrame() {
   enemies::OnFrame(w);
   damagelog::OnFrame();
   timers::OnFrame(w);
+  inputdisp::OnFrame(w);
   visuals::OnFrame(w);
   if (allowed) camera::OnFrame(w);
 

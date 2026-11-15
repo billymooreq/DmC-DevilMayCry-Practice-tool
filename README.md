@@ -1,7 +1,7 @@
 # DmC Practice Tool
 
 A practice and training tool for **DmC: Devil May Cry** (PC): cheats, mission and checkpoint select, enemy
-spawner, damage log, hitbox and trigger view, a free camera, speedrun timers and one-click unlocks — all in an
+spawner, damage log, hitbox and trigger view, an input display, a free camera, speedrun timers and one-click unlocks — all in an
 in-game menu.
 
 ![Game version](https://img.shields.io/badge/game-v1.3%20%28current%20Steam%29-brightgreen)
@@ -142,6 +142,17 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
 - **Grid (1 m)** on the triggers — a 1 m grid on the trigger areas near the camera, so their size is easy to read.
 - **Invisible walls** — the walls you can't see that stop Dante (with an optional 1 m grid).
 - **Options** — labels, max distance, line width, and hiding lines behind walls.
+- **Input display** — your inputs on screen, like in a fighting game's training mode: newest on top, with how
+  many frames each was held. It shows the game's actions (Melee, Special, Shoot, Jump, Angel, Demon, Evade, Devil
+  Trigger, weapon switches…), so keyboard and gamepad look the same and your button settings in the game are
+  followed. Settings under it:
+  - **Style** — Gamepad (Xbox buttons), Keyboard (your keys) or Text.
+  - **Frames** — *60 fps frames* (1 frame = 1/60 s of game time, like fighting games; with Game speed 0.5x a hold
+    counts half) or *Real frames* (the frames the game really drew).
+  - **Rows**, **Show neutral** (also the moments when nothing is held), **Size**, **Background**, **Hide after**
+    (fades out after some seconds without input), **Clear**, **Reset position**. Drag it while the menu is open.
+  - It only shows, it's not a cheat: no "Practice Tool Active", works in Speedrun mode. Paused game and the menu
+    don't count.
 
 ### Runs
 
@@ -234,7 +245,7 @@ The built-in list (**Default checkpoints**) is always there if you want to go ba
 
 - **"Practice Tool Active"** appears on screen after you use the first cheat and stays until you restart the
   game (or turn on **Speedrun mode**). This is on purpose, so runs and streams with the tool are easy to tell apart.
-  Timers, Unlocks, Saves and the menu itself don't show it.
+  Timers, the Input display, Unlocks, Saves and the menu itself don't show it.
 - **Steam achievements are blocked** after you use any cheat, until you restart the game.
 - **Unlock** and **Import** make a backup of your save first, in `Binaries\Win32\DmCPT_backups\` (one folder per
   backup, named with the date and time).

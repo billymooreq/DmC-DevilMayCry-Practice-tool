@@ -10,6 +10,7 @@
 #include "cutscenes.h"
 #include "popups.h"
 #include "speedrun.h"
+#include "inputdisp.h"
 #include "timers.h"
 #include "damagelog.h"
 #include "devtools.h"
@@ -583,6 +584,7 @@ std::vector<Feature*> CreateAll() {
   for (Feature* f : CreateNavFeatures()) all.push_back(f);
   for (Feature* f : CreateEnemyFeatures()) all.push_back(f);
   for (Feature* f : CreateVisualFeatures()) all.push_back(f);
+  for (Feature* f : inputdisp::CreateFeatures()) all.push_back(f);
   for (Feature* f : timers::CreateFeatures()) all.push_back(f);
   for (Feature* f : speedrun::CreateFeatures()) all.push_back(f);
   return all;

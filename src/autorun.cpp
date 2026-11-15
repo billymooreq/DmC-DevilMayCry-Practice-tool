@@ -17,6 +17,7 @@
 #include "cutscenes.h"
 #include "popups.h"
 #include "speedrun.h"
+#include "inputdisp.h"
 #include "timers.h"
 #include "d3d9_hook.h"
 #include "features.h"
@@ -543,6 +544,120 @@ void Exec(const std::vector<std::string>& cmds) {
         LOG("autorun: fnaddr %s.%s = %s func %s (static VA 0x%08X) flags 0x%X", a[0].c_str(), a[1].c_str(),
             util::Hex(f).c_str(), util::Hex(p).c_str(), (unsigned)(p ? p - base + 0x400000 : 0),
             f ? ue3::FuncFlags(f) : 0);
+      }
+    } else if (cmd == "padfake") {  // padfake 0|1: a pretend Xbox pad 0 (tests without a gamepad, #23)
+      state::padFakeButtons = 0, state::padFakeLX = 0, state::padFakeLY = 0;
+      state::padFake = arg != "0";
+      LOG("autorun: padfake %d (XInputGetState calls so far: pad0 %u pad1 %u pad2 %u pad3 %u)", (int)state::padFake.load(),
+          state::xinputCalls[0].load(), state::xinputCalls[1].load(), state::xinputCalls[2].load(),
+          state::xinputCalls[3].load());
+    } else if (cmd == "inseq") {  // inseq <keys:frames> ...: real inputs held exact times (frames of 1/60 s, #23)
+      // keys: '+'-joined, '-' = nothing. Keyboard / mouse (SendInput): LMB RMB MMB WHUP WHDN SPACE SHIFT W A S D F Q
+      // E R V X C Z 1 2 3. Pad (padfake): P_A P_B P_X P_Y P_LB P_RB P_LT P_RT P_L3 P_R3 P_UP P_DOWN P_LEFT P_RIGHT,
+      // stick P_N P_S P_E P_W P_NE P_NW P_SE P_SW. Logs how long each step really lasted.
+      struct Step {
+        std::string text;
+        std::set<std::string> keys;
+        double frames;
+      };
+      std::vector<Step> steps;
+      for (const std::string& w : Words(arg)) {
+        size_t c = w.rfind(':');
+        if (c == std::string::npos) continue;
+        Step s{w, {}, atof(w.c_str() + c + 1)};
+        std::string ks = w.substr(0, c);
+        for (size_t i = 0; i <= ks.size();) {
+          size_t j = ks.find('+', i);
+          if (j == std::string::npos) j = ks.size();
+          std::string k = ks.substr(i, j - i);
+          if (!k.empty() && k != "-") s.keys.insert(k);
+          i = j + 1;
+        }
+        steps.push_back(s);
+      }
+      static const std::map<std::string, WORD> kVk = {
+          {"SPACE", VK_SPACE}, {"SHIFT", VK_LSHIFT}, {"W", 'W'}, {"A", 'A'}, {"S", 'S'}, {"D", 'D'}, {"F", 'F'},
+          {"Q", 'Q'}, {"E", 'E'}, {"R", 'R'}, {"V", 'V'}, {"X", 'X'}, {"C", 'C'}, {"Z", 'Z'}, {"1", '1'},
+          {"2", '2'}, {"3", '3'}};
+      static const std::map<std::string, unsigned> kPad = {
+          {"P_UP", 0x1}, {"P_DOWN", 0x2}, {"P_LEFT", 0x4}, {"P_RIGHT", 0x8}, {"P_START", 0x10}, {"P_BACK", 0x20},
+          {"P_L3", 0x40}, {"P_R3", 0x80}, {"P_LB", 0x100}, {"P_RB", 0x200}, {"P_A", 0x1000}, {"P_B", 0x2000},
+          {"P_X", 0x4000}, {"P_Y", 0x8000}, {"P_LT", 0x10000}, {"P_RT", 0x20000}};
+      static const std::map<std::string, std::pair<int, int>> kStick = {
+          {"P_N", {0, 32767}}, {"P_S", {0, -32767}}, {"P_E", {32767, 0}}, {"P_W", {-32767, 0}},
+          {"P_NE", {23170, 23170}}, {"P_NW", {-23170, 23170}}, {"P_SE", {23170, -23170}}, {"P_SW", {-23170, -23170}}};
+      auto send = [](const std::string& k, bool down) {
+        INPUT in{};
+        if (k == "LMB" || k == "RMB" || k == "MMB" || k == "WHUP" || k == "WHDN") {
+          in.type = INPUT_MOUSE;
+          if (k == "LMB") in.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+          else if (k == "RMB") in.mi.dwFlags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+          else if (k == "MMB") in.mi.dwFlags = down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+          else if (!down) return;  // the wheel: one notch when the step starts
+          else in.mi.dwFlags = MOUSEEVENTF_WHEEL, in.mi.mouseData = (DWORD)(k == "WHUP" ? WHEEL_DELTA : -WHEEL_DELTA);
+          SendInput(1, &in, sizeof in);
+          return;
+        }
+        auto it = kVk.find(k);
+        if (it == kVk.end()) return;
+        in.type = INPUT_KEYBOARD;
+        in.ki.wScan = (WORD)MapVirtualKeyW(it->second, MAPVK_VK_TO_VSC);
+        in.ki.dwFlags = KEYEVENTF_SCANCODE | (down ? 0 : KEYEVENTF_KEYUP);
+        SendInput(1, &in, sizeof in);
+      };
+      auto padSet = [&](const std::set<std::string>& keys) {
+        unsigned b = 0;
+        int lx = 0, ly = 0;
+        for (const std::string& k : keys) {
+          if (auto p = kPad.find(k); p != kPad.end()) b |= p->second;
+          if (auto s = kStick.find(k); s != kStick.end()) lx = s->second.first, ly = s->second.second;
+        }
+        state::padFakeLX = lx, state::padFakeLY = ly;
+        state::padFakeButtons = b;
+      };
+      LARGE_INTEGER qf;
+      QueryPerformanceFrequency(&qf);
+      auto now = [&] {
+        LARGE_INTEGER c;
+        QueryPerformanceCounter(&c);
+        return (double)c.QuadPart / (double)qf.QuadPart;
+      };
+      timeBeginPeriod(1);
+      std::set<std::string> cur;
+      std::vector<double> at;
+      for (const Step& s : steps) {
+        for (const std::string& k : cur)
+          if (!s.keys.count(k)) send(k, false);
+        for (const std::string& k : s.keys)
+          if (!cur.count(k)) send(k, true);
+        padSet(s.keys);
+        cur = s.keys;
+        at.push_back(now());
+        double until = at.back() + s.frames / 60.0;
+        while (now() < until - 0.0025) Sleep(1);
+        while (now() < until) {
+        }
+      }
+      for (const std::string& k : cur) send(k, false);
+      padSet({});
+      at.push_back(now());
+      timeEndPeriod(1);
+      for (size_t i = 0; i < steps.size(); ++i)
+        LOG("autorun: inseq step %zu '%s' held %.2f ms = %.2f frames of 1/60 s", i, steps[i].text.c_str(),
+            (at[i + 1] - at[i]) * 1000.0, (at[i + 1] - at[i]) * 60.0);
+    } else if (cmd == "inputdisp") {  // inputdisp [rows N | probe <s> | set <key> <v> | clear] (#23)
+      std::vector<std::string> a = Words(arg);
+      if (!a.empty() && a[0] == "probe") {
+        inputdisp::Probe(a.size() > 1 ? (float)atof(a[1].c_str()) : 10.0f);
+      } else if (!a.empty() && a[0] == "set" && a.size() > 2) {
+        bool ok = inputdisp::SetByName(a[1], (float)atof(a[2].c_str()));
+        LOG("autorun: inputdisp set %s %s %s", a[1].c_str(), a[2].c_str(), ok ? "OK" : "FAILED (unknown key)");
+      } else if (!a.empty() && a[0] == "clear") {
+        inputdisp::Clear();
+        LOG("autorun: inputdisp cleared");
+      } else {
+        int n = a.size() > 1 && a[0] == "rows" ? atoi(a[1].c_str()) : 12;
+        for (const std::string& x : inputdisp::DebugLines(n)) LOG("autorun: inputdisp %s", x.c_str());
       }
     } else if (cmd == "timers") {  // timers: LiveSplit-rules run, mission, IGT, segment (state)
       for (const std::string& x : timers::DebugLines()) LOG("autorun: timers %s", x.c_str());

@@ -42,6 +42,7 @@
 #include "util.h"
 #include "version.h"
 #include "speedrun.h"
+#include "inputdisp.h"
 #include "timers.h"
 #include "visuals.h"
 #include "window_mode.h"
@@ -951,6 +952,50 @@ void TabEnemies() {
 }
 
 // ------------------------------------------------------------------ Visuals tab
+// INPUT DISPLAY (#23): the switch, then its settings (nested), then Clear · Reset position. Only shows, not a cheat.
+void InputDisplayGroup() {
+  ui::Group("Input display");
+  FeatToggle("input_display");
+  inputdisp::Options o = inputdisp::GetOptions();
+  bool ch = false;
+  RowOpt ro;
+  ro.sub = true;
+  ro.desc = "Gamepad: Xbox buttons. Keyboard: the keys set in the game's own controls menu. Text: short names. "
+            "Each action has its own colour.";
+  int r = ui::Drop("idstyle", "Style", {{"Gamepad"}, {"Keyboard"}, {"Text"}}, o.style, ro);
+  if (r >= 0 && r != o.style) o.style = r, ch = true;
+  ro.desc = "60 fps frames: 1 frame = 1/60 s of game time, like fighting games (at Game speed 0.5x a hold counts half). "
+            "Real frames: the frames the game really drew.";
+  r = ui::Drop("idframes", "Frames", {{"60 fps frames"}, {"Real frames"}}, o.frames, ro);
+  if (r >= 0 && r != o.frames) o.frames = r, ch = true;
+  ui::NumSpec n;
+  n.min = 5, n.max = 30, n.step = 1, n.def = 15, n.hardMax = 30, n.integer = true;
+  float rows = (float)o.rows;
+  ro.desc = "How many inputs the list shows.";
+  if (ui::Number("idrows", "Rows", &rows, n, o.rows != 15, ro)) o.rows = (int)std::lround(rows), ch = true;
+  ro.desc = "Also shows the moments when nothing is held, with how long they lasted.";
+  if (ui::Toggle("idneutral", "Show neutral", o.neutral, ro)) o.neutral = !o.neutral, ch = true;
+  n = {};
+  n.min = 0.5f, n.max = 2.0f, n.step = 0.1f, n.def = 1.0f, n.hardMax = 2.0f, n.unit = "\xC3\x97";
+  ro.desc = "Size of the list.";
+  ch |= ui::Number("idsize", "Size", &o.size, n, std::fabs(o.size - 1.0f) > 1e-3f, ro);
+  float bg = std::round(o.bg * 100.0f);
+  n = {};
+  n.min = 0, n.max = 100, n.step = 10, n.def = 40, n.hardMax = 100, n.integer = true, n.unit = "%";
+  ro.desc = "A dark box behind the list: 0% = none, 100% = black.";
+  if (ui::Number("idbg", "Background", &bg, n, std::fabs(bg - 40) > 0.5f, ro)) o.bg = bg / 100.0f, ch = true;
+  n = {};
+  n.min = 0, n.max = 10, n.step = 1, n.def = 0, n.hardMax = 60, n.unit = " s";
+  ro.desc = "Fades the list out after this many seconds without input. 0 = never.";
+  ch |= ui::Number("idhide", "Hide after", &o.hideAfter, n, o.hideAfter > 0, ro);
+  if (ch) inputdisp::SetOptions(o);
+  std::vector<Btn> b = {ActionBtn("input_display_clear", "Clear"),
+                        ActionBtn("input_display_reset_position", "Reset position")};
+  int c = ui::Buttons("idbtn", b);
+  if (c == 0) inputdisp::Clear();  // at once (render thread anyway)
+  else if (c == 1) inputdisp::ResetPosition();
+}
+
 void TabVisuals() {
   ui::Group("Collisions");
   FeatToggle("vis_enemy_collision");
@@ -1031,6 +1076,8 @@ void TabVisuals() {
               {visuals::Color(Cat::Loading), "Loading zones"},
               {visuals::Color(Cat::OtherTrigger), "Other triggers"},
               {visuals::Color(Cat::Walls), "Invisible walls"}});
+
+  InputDisplayGroup();
 }
 
 // ------------------------------------------------------------------ KEY BINDINGS window (#21)
@@ -1069,7 +1116,8 @@ const std::vector<BindSection>& BindLayout() {
        {{"Collisions", {"vis_enemy_collision", "vis_player_collision"}},
         {"Attacks", {"vis_hitboxes", "vis_area_damage", "vis_hit_markers", "vis_level_hazards"}},
         {"Triggers", {"vis_cutscene_triggers", "vis_arena_triggers", "vis_loading_zones", "vis_other_triggers"}},
-        {"Walls", {"vis_invisible_walls"}}}},
+        {"Walls", {"vis_invisible_walls"}},
+        {"Input display", {"input_display", "input_display_clear", "input_display_reset_position"}}}},
       {"Runs",
        {{"Speedrun", {"speedrun_mode", "speedrun_start", "speedrun_reset", "timer_reset"}},
         {"Timers", {"timer_run_ls", "timer_mission_ls", "timer_mission_igt", "timer_run_rta", "timer_total_igt"}},
@@ -2844,6 +2892,7 @@ void Draw() {
   DrawEnemyHp();
   damagelog::Draw(state::menuOpen);
   timers::Draw(state::menuOpen);
+  inputdisp::Draw(state::menuOpen);
   if (state::menuOpen) Window();
   if (state::menuOpen && g_cfg.bindsOpen) BindsWindow();  // closes with the menu, opens again with it
   if (g_checkLayout.exchange(false)) CheckBindLayout();

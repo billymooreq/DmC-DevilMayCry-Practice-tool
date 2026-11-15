@@ -3,6 +3,7 @@
 #include <Xinput.h>
 
 #include <cstdio>
+#include <string>
 
 #include "config.h"
 #include "hooks.h"
@@ -40,6 +41,19 @@ BOOL WINAPI hkClipCursor(const RECT* r) {
 
 DWORD WINAPI hkXInputGetState(DWORD idx, XINPUT_STATE* st) {
   DWORD r = oXInputGetState(idx, st);
+  if (idx < 4) ++state::xinputCalls[idx];
+  if (idx == 0 && st && state::padFake) {  // autorun tests: a pretend pad (input display, #23)
+    static DWORD packet = 0;
+    unsigned b = state::padFakeButtons;
+    memset(st, 0, sizeof *st);
+    st->dwPacketNumber = ++packet;
+    st->Gamepad.wButtons = (WORD)(b & 0xFFFF);
+    st->Gamepad.bLeftTrigger = (b & 0x10000) ? 255 : 0;
+    st->Gamepad.bRightTrigger = (b & 0x20000) ? 255 : 0;
+    st->Gamepad.sThumbLX = (SHORT)state::padFakeLX.load();
+    st->Gamepad.sThumbLY = (SHORT)state::padFakeLY.load();
+    r = ERROR_SUCCESS;
+  }
   if (r == ERROR_SUCCESS && st && state::menuOpen) memset(&st->Gamepad, 0, sizeof(st->Gamepad));
   else if (r == ERROR_SUCCESS && st && state::freecamMute) {  // Freecam: only Start (pause menu) reaches the game
     WORD keep = st->Gamepad.wButtons & XINPUT_GAMEPAD_START;
@@ -132,6 +146,16 @@ void InstallGlobalHooks() {
       hooks::Enable(scp, "SetCursorPos");
     if (hooks::Create(cc, (void*)&hkClipCursor, (void**)&oClipCursor, "ClipCursor"))
       hooks::Enable(cc, "ClipCursor");
+  }
+  {  // tests only (#23): the game looks for pads once at start - DmCPT_padfake.txt next to the exe = a pretend pad
+    wchar_t exe[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring p(exe);
+    p = p.substr(0, p.find_last_of(L"\\/") + 1) + L"DmCPT_padfake.txt";
+    if (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      state::padFake = true;
+      LOG("xinput: TEST - DmCPT_padfake.txt found: a pretend Xbox pad 0 from the start (autorun inseq P_...)");
+    }
   }
   if (g_cfg.hookXInput) {
     HMODULE xi = GetModuleHandleW(L"xinput1_3.dll");
