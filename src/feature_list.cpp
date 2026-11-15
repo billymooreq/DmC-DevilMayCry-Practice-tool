@@ -334,6 +334,10 @@ class Noclip : public Feature {
     if (!Alive(pawn_)) return;
     if (GetByte(pawn_, "NTPhysics") != 0) SetNTPhysics(pawn_, 0);
     game::Field loc = game::FieldOf(pawn_, "Location");
+    if (camera::FreecamHoldsDante()) {  // Freecam carries Dante: fly on from where it leaves him
+      if (loc.ok()) pos_ = util::ReadOr<game::Vec>(pawn_ + loc.off);
+      return;
+    }
     if (loc.ok()) {  // moved by someone else (Teleport / Load position, a level script): fly on from there
       game::Vec now = util::ReadOr<game::Vec>(pawn_ + loc.off);
       if (std::fabs(now.x - pos_.x) + std::fabs(now.y - pos_.y) + std::fabs(now.z - pos_.z) > 100) pos_ = now;
@@ -347,8 +351,10 @@ class Noclip : public Feature {
     if (KeyHeld(VK_SPACE, 0x39)) up += 1;
     if (KeyHeld(VK_CONTROL, 0x1D)) up -= 1;
     bool fast = KeyHeld(VK_SHIFT, 0x2A);
+    bool freecam = camera::FreecamFlying();  // the keys fly the camera, Dante hangs where he is
+    if (freecam) fwd = right = up = 0;
     XINPUT_STATE xs{};
-    if (!state::menuOpen && input::RawPadState(&xs)) {
+    if (!state::menuOpen && !freecam && input::RawPadState(&xs)) {
       auto axis = [](SHORT v) { return std::abs(v) < 7849 ? 0.0f : v / 32767.0f; };
       fwd += axis(xs.Gamepad.sThumbLY);
       right += axis(xs.Gamepad.sThumbLX);
@@ -602,6 +608,7 @@ void OnGameEvent(void* self, void* fn, void* parms) {
 void OnGameEventAfter(void* self, void* fn, void* parms) {
   devtools::AfterEvent(self, fn);
   if (!FeaturesAllowed()) return;
+  camera::OnEventAfter((uintptr_t)self, (uintptr_t)fn, parms);
   enemies::OnEventAfter((uintptr_t)self, (uintptr_t)fn);
   if (visuals::WantsEvents()) visuals::OnEvent((uintptr_t)self, (uintptr_t)fn, parms, true);
   if (!damagelog::On() || !parms) return;

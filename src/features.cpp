@@ -6,6 +6,7 @@
 #include <cmath>
 #include <deque>
 
+#include "camera.h"
 #include "config.h"
 #include "damagelog.h"
 #include "devtools.h"
@@ -172,6 +173,7 @@ void OnFrame() {
   damagelog::OnFrame();
   timers::OnFrame(w);
   visuals::OnFrame(w);
+  if (allowed) camera::OnFrame(w);
 
   struct Want {
     bool on;
@@ -272,6 +274,7 @@ void Init() {
   for (size_t i = 0; i < g_all.size(); ++i)
     for (size_t k = 0; k < g_all[i]->params.size() && k < kMaxParams; ++k) g_manualP[i][k] = g_all[i]->params[k].def;
   g_data.binds.resize(g_all.size());
+  for (size_t i = 0; i < g_all.size(); ++i) g_data.binds[i] = g_all[i]->defBind;
   g_rt.resize(g_all.size());
   g_appliedFlags = new std::vector<std::atomic<bool>>(g_all.size());
   engine::SetFrameCallback(&OnFrame);
@@ -472,7 +475,7 @@ void LoadJson(const nlohmann::json& feats, const nlohmann::json& presets) {
   hotkeys::CancelCapture();  // may point into the presets being replaced
   for (size_t i = 0; i < g_all.size(); ++i) {
     Feature* f = g_all[i];
-    g_data.binds[i] = {};
+    g_data.binds[i] = f->defBind;
     for (size_t k = 0; k < f->params.size() && k < kMaxParams; ++k) g_manualP[i][k] = f->params[k].def;
     if (!feats.is_object() || !feats.contains(f->id)) continue;
     if (f->noBind) continue;  // an old bind / setting of a button that has none any more
@@ -523,7 +526,7 @@ void SaveJson(nlohmann::json& feats, nlohmann::json& presets) {
   for (size_t i = 0; i < g_all.size(); ++i) {
     Feature* f = g_all[i];
     nlohmann::json j = nlohmann::json::object();
-    if (!g_data.binds[i].Empty()) j["bind"] = hotkeys::ToJson(g_data.binds[i]);
+    if (!g_data.binds[i].Empty() || !(g_data.binds[i] == f->defBind)) j["bind"] = hotkeys::ToJson(g_data.binds[i]);
     if (!f->params.empty()) {
       nlohmann::json pj = nlohmann::json::object();
       for (size_t k = 0; k < f->params.size() && k < kMaxParams; ++k) pj[f->params[k].id] = g_manualP[i][k];

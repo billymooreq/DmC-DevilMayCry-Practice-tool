@@ -192,7 +192,25 @@ std::string TopPackage(uintptr_t o) {
 const World& W() { return g_w; }
 
 // PlayerCamera.CameraCache = { float TimeStamp; TPOV POV { Vector Location; Rotator Rotation; float FOV } }
+namespace {
+bool g_povOverride = false;  // Freecam (camera.cpp): the view the game renders this frame
+Pov g_povOv;
+}  // namespace
+
+void SetPovOverride(bool on, const Pov* p) {
+  g_povOverride = on && p;
+  if (p) g_povOv = *p;
+}
+
 bool CameraPov(const World& w, Pov& out) {
+  if (g_povOverride && w.pc) {
+    out = g_povOv;
+    return true;
+  }
+  return CameraPovGame(w, out);
+}
+
+bool CameraPovGame(const World& w, Pov& out) {
   uintptr_t cam = GetObj(w.pc, "PlayerCamera");
   if (!cam) return false;
   Field f = FieldOf(cam, "CameraCache");

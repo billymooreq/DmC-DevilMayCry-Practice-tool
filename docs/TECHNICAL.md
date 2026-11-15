@@ -81,7 +81,12 @@ health right after the call returns.
   strike processes, Kismet touch triggers classified by walking their script links, blocking volumes. Lines can be
   hidden behind the level geometry using the scene depth buffer (drawn from the `Clear` hook just before the game
   clears it). Explosions and damage zones are drawn from the game's own explosion / radial damager parameters,
-  level hazards from pain volumes.
+  level hazards from pain volumes. Loading zones are the level's `LevelStreamingVolume`s (labelled with the
+  streaming levels they keep loaded) plus Kismet triggers that lead to a level streaming action. The engine
+  streams levels by the player pawn's position, not by the camera.
+- Freecam (`src/camera.cpp`): the view of the player controller (`GetPlayerViewPoint`) is replaced by our own camera
+  and the game's keyboard / mouse input is muted while flying. Freecam (triggers) and the R / F keys move the
+  (hidden or visible) pawn with physics off; when let go, it is held in place until the game moves it.
 - Skip cutscenes calls the game's own cutscene cancel (the same path as its Skip button) while a cutscene plays.
   Skip hints & pop-ups presses the game's own OK callback of the item screen and hides tutorial hints.
 - Timers (`src/timers.cpp`) sample the same two values the community LiveSplit autosplitter reads — the loading flag

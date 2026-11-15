@@ -13,4 +13,10 @@ void Toast(const std::string& text);
 void ForceDetails(bool open);
 void OpenSavePopup(const std::string& which, int index);
 void SetWindow(float x, float y, float w, float h);  // autorun ui_win: menu window, fractions of the screen
+// KEY BINDINGS window (#21), autorun: open 0/1; place (fractions of the screen, w <= 0 = default); columns drawn
+// last frame; check its layout against the rows the tabs draw (logged "bindlayout: ...").
+void SetBindsWindow(int open);
+void PlaceBindsWindow(float x, float y, float w, float h);
+int BindsWindowColumns();
+void CheckBindsLayout();
 }  // namespace menu

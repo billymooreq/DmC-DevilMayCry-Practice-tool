@@ -1,7 +1,8 @@
 # DmC Practice Tool
 
-A practice and training tool for **DmC: Devil May Cry** (PC, Steam): cheats, mission and checkpoint select, enemy
-spawner, damage log, hitbox view, speedrun timers and one-click unlocks — all in an in-game menu.
+A practice and training tool for **DmC: Devil May Cry** (PC): cheats, mission and checkpoint select, enemy
+spawner, damage log, hitbox and trigger view, a free camera, speedrun timers and one-click unlocks — all in an
+in-game menu.
 
 ![Game version](https://img.shields.io/badge/game-v1.3%20%28current%20Steam%29-brightgreen)
 ![v1.0](https://img.shields.io/badge/game-v1.0%20%282013%29-brightgreen)
@@ -54,7 +55,7 @@ Good to know before you start:
 ## Features
 
 The sections below follow the tabs of the menu. Most features can get a key or a gamepad button combination in
-**Hotkeys**. Cheats, Practice, Enemies and Visuals work inside a mission.
+the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Visuals work inside a mission.
 
 ### Cheats
 
@@ -81,6 +82,21 @@ The sections below follow the tabs of the menu. Most features can get a key or a
 **Camera**
 - **Unlock camera** — you control the camera everywhere: no fixed camera angles, no automatic turning or lock-on
   camera.
+
+**Freecam**
+- **Freecam** — fly the camera anywhere, through walls. Dante stays where he is, and the game doesn't get your keys
+  while you fly.
+  - Keyboard: mouse to look, **W A S D** to move, **Space** / **Ctrl** up and down, hold **Shift** to fly faster or
+    **Alt** to fly slower. The mouse wheel changes the speed.
+  - Gamepad: sticks to move and look, **RT** / **LT** up and down, **RB** / **LB** faster and slower.
+  - **Speed** — how fast the camera flies.
+- **Freecam (triggers)** — the same camera, but an invisible Dante flies inside it. So he walks into triggers for
+  you: fights and cutscenes start, and the level loads around the camera. Turn it off and Dante is visible again,
+  hanging in the air right there until you move him.
+- **R / F: take Dante with you** (only while Freecam is on). Press **R** or **F** and Dante hangs in front of the
+  camera and flies with it. Press again to let him go: after **R** he stays in the air (until you jump or move),
+  after **F** he falls down.
+  - **Dante distance** — how far in front of the camera he hangs.
 
 ### Practice
 
@@ -121,6 +137,9 @@ The sections below follow the tabs of the menu. Most features can get a key or a
 - **Hit markers** — a small star where a hit really landed.
 - **Level hazards** — parts of the level that hurt when touched (fire, spikes, poison, pits).
 - **Cutscene / Arena / Other triggers** — the areas that start a cutscene, a fight or a script when Dante walks in.
+- **Loading zones** (blue) — the areas that load or unload the next part of the level when Dante walks in. The
+  label says which parts of the level the zone loads. A faint zone is switched off for now.
+- **Grid (1 m)** on the triggers — a 1 m grid on the trigger areas near the camera, so their size is easy to read.
 - **Invisible walls** — the walls you can't see that stop Dante (with an optional 1 m grid).
 - **Options** — labels, max distance, line width, and hiding lines behind walls.
 
@@ -166,8 +185,12 @@ Works in the main menu after you pick your save slot. A backup of your save is m
 
 ### Hotkeys
 
-- The only place to set keys. Give any feature a keyboard key (with Ctrl / Shift / Alt if you like) or a gamepad
-  button combination. Press once — on, again — off.
+- **Open key bindings window** — one window with the keys of every feature from all tabs (Cheats, Practice,
+  Enemies, Visuals, Runs), in the same groups and order as in the tabs.
+  - Click a key box, then press a key (with Ctrl / Shift / Alt if you like) or a gamepad button combination.
+    **Esc** cancels, **×** next to a key clears it. If a key is already used by another feature, it turns red.
+  - Move the window by its title bar and drag its edges to make it bigger: it shows more columns when it is wide.
+  - Press a feature's key once — on, again — off.
 - **Presets** — several features with their own settings on one key.
 
 ### Settings

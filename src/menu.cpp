@@ -2,6 +2,8 @@
 // numbers. The widgets are in ui.cpp; rules: ui_guidelines.md.
 #include "menu.h"
 
+#include "camera.h"
+
 #include <windows.h>
 #include <shellapi.h>
 
@@ -24,6 +26,7 @@
 #include "features.h"
 #include "hotkeys.h"
 #include "imgui.h"
+#include "imgui_internal.h"  // BringWindowToDisplayFront: the KEY BINDINGS window stays above the menu
 #include "input.h"
 #include "log.h"
 #include "nav.h"
@@ -146,12 +149,25 @@ void BindRow(const char* id, const char* label, const char* group, hotkeys::Bind
   }
 }
 
+// ---- the bindable features each tab draws, in order: (group heading, id) of the last frame it was drawn. The
+// autorun check "bindlayout" compares this with kBindLayout (the order of the KEY BINDINGS window). Render thread.
+std::string g_drawTab;
+std::map<std::string, std::vector<std::pair<std::string, std::string>>> g_seen;
+void Seen(const char* id) {
+  if (g_drawTab.empty()) return;
+  auto& v = g_seen[g_drawTab];
+  for (const auto& x : v)
+    if (x.second == id) return;
+  v.push_back({ui::CurrentGroup(), id});
+}
+
 // ------------------------------------------------------------------ feature rows
 const char* kNotInMission = "in a mission only";
 
 std::string Unit(const char* fmt) {
   if (!fmt) return "";
   if (strchr(fmt, 'x')) return "\xC3\x97";
+  if (strstr(fmt, " m/s")) return " m/s";
   if (strstr(fmt, " m")) return " m";
   if (strstr(fmt, " s")) return " s";
   return "";
@@ -199,6 +215,7 @@ RowOpt FeatOpt(const features::Feature* f, const features::View& v, bool sub = f
 }
 
 void FeatToggle(const char* id, const char* label = nullptr) {
+  Seen(id);
   features::Feature* f = features::Find(id);
   if (!f) return;
   features::View v = features::Get(id);
@@ -220,6 +237,7 @@ void FeatOption(const char* id, int k, const char* label = nullptr) {
 
 // A number: the feature's own value (multipliers: the value is the switch) or a nested setting.
 void FeatNumber(const char* id, int k, const char* label = nullptr, bool sub = false) {
+  Seen(id);
   features::Feature* f = features::Find(id);
   if (!f || k >= (int)f->params.size()) return;
   const features::ParamDef& d = f->params[k];
@@ -233,6 +251,7 @@ void FeatNumber(const char* id, int k, const char* label = nullptr, bool sub = f
 }
 
 void FeatModes(const char* id) {
+  Seen(id);
   features::Feature* f = features::Find(id);
   if (!f || f->params.empty()) return;
   features::View v = features::Get(id);
@@ -254,6 +273,7 @@ std::string ActionWhy(const char* id, const std::string& extra = {}) {
 
 Btn ActionBtn(const char* id, const char* label, BtnKind kind = BtnKind::Normal, const std::string& extraWhy = {},
               const char* desc = nullptr) {
+  Seen(id);
   features::Feature* f = features::Find(id);
   Btn b;
   b.label = label;
@@ -289,6 +309,7 @@ void TabCheats() {
   FeatToggle("ohk_enemies");
   FeatToggle("enemy_inf_hp");
   {  // an action as a plain row: click = run
+    Seen("enemy_kill_all");
     features::Feature* f = features::Find("enemy_kill_all");
     std::string why = ActionWhy("enemy_kill_all");
     RowOpt o;
@@ -315,6 +336,23 @@ void TabCheats() {
 
   ui::Group("Camera");
   FeatToggle("unlock_camera");
+
+  // Freecam (#20): its two modes first, sliders at the bottom. Carrying Dante is on keys (R / F, Hotkeys tab).
+  ui::Group("Freecam");
+  Seen("freecam");
+  Seen("freecam_triggers");
+  Seen("freecam_carry_hang");  // keys of this group without rows (Hotkeys tab / KEY BINDINGS window)
+  Seen("freecam_carry_fall");
+  if (features::Feature* f = features::Find("freecam")) {
+    features::View v = features::Get("freecam");
+    bool trig = v.manualP[2] != 0;
+    RowOpt o = FeatOpt(f, v);
+    if (ui::Toggle("freecam", f->name, v.on && !trig, o)) camera::ToggleFreecamMode(false);
+    RowOpt t = FeatOpt(f, v, false, f->params[2].help);
+    if (ui::Toggle("freecam_trig", f->params[2].label, v.on && trig, t)) camera::ToggleFreecamMode(true);
+  }
+  FeatNumber("freecam", 0, "Speed", true);
+  FeatNumber("freecam", 1, "Dante distance", true);
 }
 
 // ------------------------------------------------------------------ Practice tab
@@ -687,6 +725,7 @@ void TabPractice() {
     int c = ui::Buttons("cpbtns", b);
     if (c >= 0) RunAction(ids[c], b[c]);
     realcp::Entry ke;
+    Seen("nav_delete_mine");  // its place, also while the picked point is not one of yours (no button then)
     if (!p.cp.empty() && realcp::Find(cur->map, p.cp, &ke)) {
       ui::Info("Your checkpoint: loads exactly where you made it (like Continue).", ui::kOk);
       std::vector<Btn> d(1);
@@ -725,6 +764,7 @@ void TabPractice() {
     const char* ids[] = {"nav_checkpoint", "nav_teleport", "nav_keep", "nav_restart"};
     int c = ui::Buttons("cpbtns", b);
     if (c >= 0) RunAction(ids[c], b[c]);
+    Seen("nav_delete_mine");  // its place (the button shows in a mission, on a point of yours)
   }
 
   // ---- Dante's positions
@@ -891,6 +931,7 @@ void TabEnemies() {
              "(shown in red). Separate line: a line of its own.";
     r = ui::Drop("logweak", "Weak spot", w, damagelog::MergeWeak() ? 0 : 1, o);
     if (r >= 0) damagelog::SetMergeWeak(r == 0), MarkConfigDirty();
+    Seen("damage_log_clear");
     std::vector<Btn> b(2);
     b[0].label = "Clear log";
     b[0].desc = "Empties the log.";
@@ -926,12 +967,25 @@ void TabVisuals() {
   ui::Group("Triggers");
   FeatToggle("vis_cutscene_triggers");
   FeatToggle("vis_arena_triggers");
+  FeatToggle("vis_loading_zones");
   FeatToggle("vis_other_triggers");
+  {  // one grid option for every kind of trigger (like the walls' Grid)
+    visuals::Options o = visuals::GetOptions();
+    RowOpt g;
+    g.sub = true;
+    g.desc = "A 1 m grid on the triggers near Dante (all kinds), so their size and height are easy to read.";
+    if (ui::Toggle("vtrig_grid", "Grid (1 m)", o.triggerGrid, g)) {
+      o.triggerGrid = !o.triggerGrid;
+      visuals::SetOptions(o);
+      MarkConfigDirty();
+    }
+  }
   if (features::Get("vis_cutscene_triggers").applied || features::Get("vis_arena_triggers").applied ||
-      features::Get("vis_other_triggers").applied) {
+      features::Get("vis_loading_zones").applied || features::Get("vis_other_triggers").applied) {
     visuals::Stats st = visuals::GetStats();
     ui::Info("In this part of the level: " + std::to_string(st.triggers[0]) + " cutscene, " +
-             std::to_string(st.triggers[1]) + " arena, " + std::to_string(st.triggers[2]) + " other");
+             std::to_string(st.triggers[1]) + " arena, " + std::to_string(st.triggers[3]) + " loading, " +
+             std::to_string(st.triggers[2]) + " other");
   }
   ui::Group("Walls");
   FeatToggle("vis_invisible_walls");
@@ -941,7 +995,7 @@ void TabVisuals() {
   visuals::Options o = visuals::GetOptions();
   bool ch = false;
   RowOpt ro;
-  ro.desc = "Names next to the shapes: what a trigger starts (Arena, Cutscene) and the name of an attack.";
+  ro.desc = "Names next to the shapes: what a trigger starts (Arena, Cutscene, what a loading zone loads) and the name of an attack.";
   if (ui::Toggle("vlabels", "Show labels", o.labels, ro)) o.labels = !o.labels, ch = true;
   ro.desc = "Triggers and invisible walls behind the level's walls and floors are not drawn. Off: they show "
             "through everything.";
@@ -974,8 +1028,409 @@ void TabVisuals() {
               {visuals::HitOnDanteColor(), "Hits on Dante"},
               {visuals::Color(Cat::Arena), "Arena"},
               {visuals::Color(Cat::Cutscene), "Cutscene"},
+              {visuals::Color(Cat::Loading), "Loading zones"},
               {visuals::Color(Cat::OtherTrigger), "Other triggers"},
               {visuals::Color(Cat::Walls), "Invisible walls"}});
+}
+
+// ------------------------------------------------------------------ KEY BINDINGS window (#21)
+// Every feature that can have a key, by tab and group, in the order of the rows of the tabs. The KEY BINDINGS
+// window is drawn from this list only. A new feature with a key: put it here at the place of its row (a bindable
+// feature missing here is still shown, under OTHER at the end, and logged). Autorun "bindlayout" checks this list
+// against what the tabs really draw (Seen() in the row helpers). Ids without a key (noBind) keep their place but
+// are not shown.
+struct BindGroup {
+  const char* name;
+  std::vector<const char*> ids;
+};
+struct BindSection {
+  const char* tab;
+  std::vector<BindGroup> groups;
+};
+const std::vector<BindSection>& BindLayout() {
+  static const std::vector<BindSection> k = {
+      {"Cheats",
+       {{"Player", {"inf_hp", "ohko_player", "inf_dt", "inf_glide", "noclip"}},
+        {"Enemies", {"ohk_enemies", "enemy_inf_hp", "enemy_kill_all"}},
+        {"Damage", {"dmg_dealt", "dmg_taken"}},
+        {"Speed", {"game_speed", "player_speed", "enemy_speed"}},
+        {"Camera", {"unlock_camera"}},
+        {"Freecam", {"freecam", "freecam_triggers", "freecam_carry_hang", "freecam_carry_fall"}}}},
+      {"Practice",
+       {{"Cutscenes", {"skip_cutscenes", "skip_popups"}},
+        {"Mission select", {"nav_mission"}},
+        {"Checkpoint", {"nav_checkpoint", "nav_teleport", "nav_keep", "nav_restart", "nav_delete_mine"}},
+        {"Dante position", {"nav_save_pos", "nav_load_pos"}}}},
+      {"Enemies",
+       {{"Spawn", {"enemy_save_pos", "enemy_spawn", "enemy_kill_all", "enemy_despawn"}},
+        {"Enemy health", {"enemy_show_hp"}},
+        {"Damage log", {"damage_log", "damage_log_clear"}}}},
+      {"Visuals",
+       {{"Collisions", {"vis_enemy_collision", "vis_player_collision"}},
+        {"Attacks", {"vis_hitboxes", "vis_area_damage", "vis_hit_markers", "vis_level_hazards"}},
+        {"Triggers", {"vis_cutscene_triggers", "vis_arena_triggers", "vis_loading_zones", "vis_other_triggers"}},
+        {"Walls", {"vis_invisible_walls"}}}},
+      {"Runs",
+       {{"Speedrun", {"speedrun_mode", "speedrun_start", "speedrun_reset", "timer_reset"}},
+        {"Timers", {"timer_run_ls", "timer_mission_ls", "timer_mission_igt", "timer_run_rta", "timer_total_igt"}},
+        {"Look", {"timer_reset_position"}}}},
+  };
+  return k;
+}
+
+int FeatureIndex(const std::string& id) {
+  const auto& all = features::All();
+  for (size_t i = 0; i < all.size(); ++i)
+    if (id == all[i]->id) return (int)i;
+  return -1;
+}
+
+bool Bindable(const char* id) {
+  features::Feature* f = features::Find(id);
+  return f && !f->noBind;
+}
+
+// The window's sections: the layout without ids that have no key, + OTHER for bindable features left out of it.
+std::vector<BindSection> BindSections() {
+  std::vector<BindSection> out;
+  std::set<std::string> listed;
+  for (const BindSection& s : BindLayout()) {
+    BindSection o{s.tab, {}};
+    for (const BindGroup& g : s.groups) {
+      BindGroup og{g.name, {}};
+      for (const char* id : g.ids) {
+        listed.insert(id);
+        if (Bindable(id)) og.ids.push_back(id);
+      }
+      if (!og.ids.empty()) o.groups.push_back(og);
+    }
+    if (!o.groups.empty()) out.push_back(o);
+  }
+  BindGroup other{"Other", {}};
+  for (features::Feature* f : features::All())
+    if (!f->noBind && !listed.count(f->id)) other.ids.push_back(f->id);
+  if (!other.ids.empty()) {
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      for (const char* id : other.ids) LOG("bindwin: '%s' is not in the key bindings layout (shown under OTHER)", id);
+    }
+    out.push_back({"Other", {other}});
+  }
+  return out;
+}
+
+// Height of a section in css px (the same sizes ui::Section / Group / KeyCell use).
+float SectionCss(const BindSection& s) {
+  float h = 7 + ui::kSectionCss * 1.15f + 6 + 8;
+  for (const BindGroup& g : s.groups) h += 7 + 11 * 1.25f + 2 + 22.0f * g.ids.size();
+  return h;
+}
+
+// Sections in order into k columns (a section never splits): the split with the lowest tallest column.
+std::vector<int> SplitColumns(const std::vector<float>& h, int k) {
+  int n = (int)h.size();
+  std::vector<int> best, cur;  // cur[c] = first section of column c + 1
+  float bestMax = 1e30f;
+  std::function<void(int, int, float)> go = [&](int start, int col, float mx) {
+    if (col == k - 1) {
+      float t = 0;
+      for (int i = start; i < n; ++i) t += h[i];
+      mx = std::max(mx, t);
+      if (mx < bestMax - 0.01f) bestMax = mx, best = cur;
+      return;
+    }
+    float t = 0;
+    for (int e = start + 1; e <= n - (k - 1 - col); ++e) {
+      t += h[e - 1];
+      cur.push_back(e);
+      go(e, col + 1, std::max(mx, t));
+      cur.pop_back();
+    }
+  };
+  go(0, 0, 0);
+  std::vector<int> colOf(n, 0);
+  int c = 0;
+  for (int i = 0; i < n; ++i) {
+    while (c < (int)best.size() && i >= best[c]) ++c;
+    colOf[i] = c;
+  }
+  return colOf;
+}
+
+// Names of everything else that uses a key overlapping *b (features, presets, the menu key).
+std::string UsedAlsoBy(const hotkeys::Bind* b) {
+  std::vector<std::string> names;
+  const auto& all = features::All();
+  features::Data& d = features::D();
+  for (size_t i = 0; i < d.binds.size() && i < all.size(); ++i)
+    if (&d.binds[i] != b && !all[i]->noBind && !d.binds[i].Empty() && hotkeys::Overlaps(*b, d.binds[i]))
+      names.push_back(all[i]->name);
+  for (const auto& p : d.presets)
+    if (&p.bind != b && !p.bind.Empty() && hotkeys::Overlaps(*b, p.bind)) names.push_back("preset " + p.name);
+  if (&g_cfg.menuKey != b && !g_cfg.menuKey.Empty() && hotkeys::Overlaps(*b, g_cfg.menuKey))
+    names.push_back("Open / close menu");
+  std::string s;
+  for (const auto& n : names) s += (s.empty() ? "" : ", ") + n;
+  return s;
+}
+
+constexpr float kBindsColCss = 330;             // a column is at least this wide (css px)
+constexpr float kBindsW = 1140, kBindsH = 660;  // first opening: 1080p -> about 1824 x 1037 px, centred
+constexpr int kBindsHintLines = 3;              // the hint box: 3 lines (the menu: 4), more rows fit
+constexpr ImU32 kBindsBg = IM_COL32(8, 8, 10, 247);  // nearly opaque: the menu under it must not show through
+std::atomic<float> g_bindsSet[4] = {-1, -1, -1, -1};  // autorun bindwin_set: x y w h as fractions of the screen
+std::string g_bindsHint;                          // the window's own hint (the menu keeps its own)
+std::atomic<int> g_bindsCols{0};                  // columns of the last frame (autorun log)
+
+bool CaptureIsFeature() {
+  const hotkeys::Bind* t = hotkeys::CaptureTarget();
+  if (!t) return false;
+  auto lk = features::Lock();
+  for (const auto& b : features::D().binds)
+    if (&b == t) return true;
+  return false;
+}
+void CancelWindowCapture() {
+  if (CaptureIsFeature()) hotkeys::CancelCapture();
+}
+
+void BindsHeader(const ImVec2& wp, float W) {
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  float h = P(24), tpx = P(13);
+  ui::Text(dl, ui::F::Title, tpx, ImVec2(wp.x + P(10), wp.y + (h - tpx) * 0.5f), ui::kText, "KEY BINDINGS", tpx * 0.14f);
+  ImVec2 x0(wp.x + W - P(4) - P(22), wp.y + P(1));
+  ImGui::SetCursorScreenPos(x0);
+  bool close = ImGui::InvisibleButton("##bclose", ImVec2(P(22), P(22)));
+  bool xh = ImGui::IsItemHovered();
+  if (xh) dl->AddRectFilled(x0, ImVec2(x0.x + P(22), x0.y + P(22)), ui::kAccent);
+  float xpx = P(14);
+  ImVec2 xs = ui::Measure(ui::F::Mono, xpx, "\xC3\x97");
+  ui::Text(dl, ui::F::Mono, xpx, ImVec2(x0.x + (P(22) - xs.x) * 0.5f, x0.y + (P(22) - xpx) * 0.5f),
+           xh ? ui::kWhite : IM_COL32(0x9A, 0x9A, 0x9A, 255), "\xC3\x97");
+  if (xh) ui::SetHint("Closes this window (Hotkeys tab: Open key bindings window opens it again).");
+  if (close) {
+    g_cfg.bindsOpen = false;
+    CancelWindowCapture();
+    MarkConfigDirty();
+    LOG("menu: key bindings window closed (x)");
+  }
+  float ly = wp.y + h;
+  dl->AddRectFilled(ImVec2(wp.x, ly), ImVec2(wp.x + W, ly + std::max(1.0f, std::round(P(2)))), ui::kAccent);
+  ImGui::SetCursorScreenPos(ImVec2(wp.x, ly + std::max(1.0f, std::round(P(2)))));
+}
+
+float HintHeight(const std::string& text, float W, std::vector<std::string>* lines, int maxLines = 4);
+
+void BindsWindow() {
+  ImGuiIO& io = ImGui::GetIO();
+  ImVec2 ds = io.DisplaySize;
+  if (ds.x <= 0 || ds.y <= 0) return;
+  float ss = ui::Screen() * ui::kBoost;
+  static bool placed = false;
+  static float placedW = -1;
+  static ImVec2 placedFor;
+  bool set = false;
+  ImVec2 size, pos;
+  if (g_bindsSet[2] > -0.5f) {  // autorun bindwin_set (w <= 0: back to the default)
+    if (g_bindsSet[2] > 0) {
+      size = ImVec2(g_bindsSet[2] * ds.x, g_bindsSet[3] * ds.y);
+      pos = ImVec2(g_bindsSet[0] * ds.x, g_bindsSet[1] * ds.y);
+    } else {
+      g_cfg.bindsW = 0;
+    }
+    g_bindsSet[2] = -1;
+    set = g_cfg.bindsW > 0 || size.x > 0;
+    if (!set) placed = false;
+  }
+  if (!set && (!placed || g_cfg.bindsW != placedW || placedFor.x != ds.x || placedFor.y != ds.y)) {
+    if (g_cfg.bindsW > 0) {
+      size = ImVec2(g_cfg.bindsW * ds.x, g_cfg.bindsH * ds.y);
+      pos = ImVec2(g_cfg.bindsX * ds.x, g_cfg.bindsY * ds.y);
+    } else {  // first opening: centred, sized for 1080p (most of it fits without scrolling)
+      size = ImVec2(std::min(kBindsW * ss, ds.x * 0.96f), std::min(kBindsH * ss, ds.y * 0.96f));
+      pos = ImVec2((ds.x - size.x) * 0.5f, (ds.y - size.y) * 0.5f);
+    }
+    set = true;
+  }
+  if (set) {
+    placed = true;
+    placedFor = ds;
+    placedW = g_cfg.bindsW;
+    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+  }
+  float minW = std::min(ds.x, P(kBindsColCss) + P(12));
+  ImGui::SetNextWindowSizeConstraints(ImVec2(minW, std::min(ds.y, 200 * ss)), ds);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, kBindsBg);
+  bool vis = ImGui::Begin("##DmCPTKeyBindings", nullptr,
+                          ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar |
+                              ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings);
+  ImGui::PopStyleColor();
+  // above the menu window (also after a click on the menu), but not above a dropdown the menu opened
+  if (!ui::AnyPopupOpen()) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+  if (vis) {
+    ImFont* base = ImGui::GetFont();
+    ImGui::SetWindowFontScale(P(13) / base->FontSize);
+    ImVec2 p = ImGui::GetWindowPos(), sz = ImGui::GetWindowSize();
+    ImVec2 np(std::max(0.0f, std::min(p.x, ds.x - sz.x)), std::max(0.0f, std::min(p.y, ds.y - sz.y)));
+    if (np.x != p.x || np.y != p.y) ImGui::SetWindowPos(np);
+    if (!ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+      float fx = np.x / ds.x, fy = np.y / ds.y, fw = sz.x / ds.x, fh = sz.y / ds.y;
+      if (std::fabs(fx - g_cfg.bindsX) > 0.001f || std::fabs(fy - g_cfg.bindsY) > 0.001f ||
+          std::fabs(fw - g_cfg.bindsW) > 0.001f || std::fabs(fh - g_cfg.bindsH) > 0.001f) {
+        g_cfg.bindsX = fx, g_cfg.bindsY = fy, g_cfg.bindsW = fw, g_cfg.bindsH = fh;
+        placedW = fw;
+        MarkConfigDirty();
+      }
+    }
+    ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    for (int i = 1; i <= 8; ++i) {
+      float e = P(4.0f * i);
+      bg->AddRectFilled(ImVec2(np.x - e * 0.5f, np.y - e * 0.25f + P(10)),
+                        ImVec2(np.x + sz.x + e * 0.5f, np.y + sz.y + e * 0.5f + P(10)), IM_COL32(0, 0, 0, 14));
+    }
+    // the window's own hint: the menu's hint is put back at the end
+    std::string menuHint = ui::Hint();
+    ui::SetHint(g_bindsHint);
+    BindsHeader(np, sz.x);
+    std::vector<std::string> lines;
+    const std::string& hint = ui::Hint();
+    std::string shown = hint.empty() ? "Point at a line to see what it does." : hint;
+    float hintH = g_cfg.hideHints ? 0 : HintHeight(shown, sz.x, &lines, kBindsHintLines);
+    float fpx = P(11), footH = P(6) * 2 + fpx * 1.3f;
+    float listH = std::max(P(40), np.y + sz.y - ImGui::GetCursorScreenPos().y - hintH - footH);
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, std::max(3.0f, P(6)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, P(2)));
+    ImGui::BeginChild("##blist", ImVec2(sz.x, listH), ImGuiChildFlags_AlwaysUseWindowPadding, 0);
+    ImGui::PopStyleVar(2);
+    {
+      std::vector<BindSection> secs = BindSections();
+      float avail = ImGui::GetContentRegionAvail().x;
+      int cols = std::max(1, std::min({3, (int)secs.size(), (int)(avail / P(kBindsColCss))}));
+      g_bindsCols = cols;
+      std::vector<float> hs;
+      for (const auto& sc : secs) hs.push_back(SectionCss(sc));
+      std::vector<int> colOf = SplitColumns(hs, cols);
+      auto lk = features::Lock();
+      features::Data& d = features::D();
+      ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0, 0));
+      if (ImGui::BeginTable("##bcols", cols, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextRow();
+        for (int c = 0; c < cols; ++c) {
+          ImGui::TableSetColumnIndex(c);
+          for (size_t si = 0; si < secs.size(); ++si) {
+            if (colOf[si] != c) continue;
+            const BindSection& sc = secs[si];
+            ImGui::PushID(sc.tab);
+            ui::Section(sc.tab);
+            for (const BindGroup& g : sc.groups) {
+              ui::Group(g.name);
+              ImGui::PushID(g.name);
+              for (const char* id : g.ids) {
+                int i = FeatureIndex(id);
+                if (i < 0 || i >= (int)d.binds.size()) continue;
+                features::Feature* f = features::All()[i];
+                hotkeys::Bind* b = &d.binds[i];
+                ui::KeyState st = KeyStateOf(b);
+                std::string desc = f->help;
+                std::string keyDesc;
+                if (st == ui::KeyState::Waiting)
+                  keyDesc = "Press a key or a gamepad button combination now. Esc cancels (or click the box again).";
+                else
+                  keyDesc = std::string("Click, then press a key or a gamepad button combination for ") + f->name + ".";
+                if (st == ui::KeyState::Conflict) {
+                  std::string other = UsedAlsoBy(b);
+                  std::string c2 = "\nThis key is used twice" + (other.empty() ? std::string(".") : ": also " + other + ".");
+                  desc += c2;
+                  keyDesc += c2;
+                }
+                int r = ui::KeyCell(id, f->name, hotkeys::Text(*b), st, desc, keyDesc);
+                if (r == 1) {
+                  if (hotkeys::CaptureTarget() == b) hotkeys::CancelCapture();
+                  else hotkeys::BeginCapture(b);
+                } else if (r == 2) {
+                  if (hotkeys::CaptureTarget() == b) hotkeys::CancelCapture();
+                  *b = {};
+                  features::MarkDirty();
+                  LOG("bindwin: key of %s cleared", id);
+                }
+              }
+              ImGui::PopID();
+            }
+            ui::Space(8);
+            ImGui::PopID();
+          }
+        }
+        ImGui::EndTable();
+      }
+      ImGui::PopStyleVar();
+    }
+    ImGui::EndChild();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float line = std::max(1.0f, std::round(P(1)));
+    float y = np.y + sz.y - hintH - footH;
+    if (!g_cfg.hideHints) {
+      dl->AddRectFilled(ImVec2(np.x, y), ImVec2(np.x + sz.x, y + line), IM_COL32(0x2A, 0x2A, 0x2A, 255));
+      float px = P(12), lh = px * 1.55f;
+      for (size_t i = 0; i < lines.size(); ++i)
+        ui::Text(dl, ui::F::Mono, px, ImVec2(np.x + P(10), y + P(7) + i * lh + (lh - px) * 0.5f),
+                 hint.empty() ? ui::kOff : ui::kSoft, lines[i].c_str());
+    }
+    // how to set / clear a key: always shown
+    float fy = np.y + sz.y - footH;
+    dl->AddRectFilled(ImVec2(np.x, fy), ImVec2(np.x + sz.x, fy + line), IM_COL32(0x2A, 0x2A, 0x2A, 255));
+    const char* how = "Click a key box, then press a key or a gamepad button combination (Esc cancels). "
+                      "\xC3\x97 next to a key clears it.";
+    ui::Text(dl, ui::F::Mono, fpx, ImVec2(np.x + P(10), fy + P(6)), ui::kText2,
+             ui::Ellipsize(ui::F::Mono, fpx, how, sz.x - P(20)).c_str());
+    g_bindsHint = ui::Hint();
+    ui::SetHint(menuHint);
+  }
+  ImGui::End();
+  ImGui::PopStyleVar(3);
+}
+
+// Autorun "bindlayout": the bindable features each of the five tabs drew last time (group, order) against the
+// layout. Render thread; every tab must have been drawn once (autorun: menu 1 <tab>).
+std::atomic<bool> g_checkLayout{false};
+void CheckBindLayout() {
+  int bad = 0;
+  for (const BindSection& s : BindLayout()) {
+    std::vector<std::string> want, got;
+    for (const BindGroup& g : s.groups)
+      for (const char* id : g.ids)
+        if (Bindable(id)) want.push_back(ui::Upper(g.name) + "/" + id);
+    auto it = g_seen.find(s.tab);
+    if (it == g_seen.end()) {
+      LOG("bindlayout: %s - tab not drawn yet", s.tab);
+      ++bad;
+      continue;
+    }
+    for (const auto& x : it->second)
+      if (Bindable(x.second.c_str())) got.push_back(ui::Upper(x.first) + "/" + x.second);
+    if (want == got) {
+      LOG("bindlayout: %s OK (%zu keys, same groups and order as the tab)", s.tab, want.size());
+    } else {
+      ++bad;
+      std::string a, b;
+      for (const auto& x : want) a += x + " ";
+      for (const auto& x : got) b += x + " ";
+      LOG("bindlayout: %s DIFFERS", s.tab);
+      LOG("bindlayout:   layout: %s", a.c_str());
+      LOG("bindlayout:   tab:    %s", b.c_str());
+    }
+  }
+  std::set<std::string> listed;
+  for (const BindSection& s : BindLayout())
+    for (const BindGroup& g : s.groups)
+      for (const char* id : g.ids) listed.insert(id);
+  for (features::Feature* f : features::All())
+    if (!f->noBind && !listed.count(f->id)) LOG("bindlayout: %s has a key but is not in the layout", f->id), ++bad;
+  LOG("bindlayout: %s", bad ? "DIFFERENCES FOUND" : "all OK");
 }
 
 // ------------------------------------------------------------------ Hotkeys tab
@@ -1064,6 +1519,7 @@ void SpeedrunGroup() {
     RowOpt o;
     o.desc = "Turn it on before you record a run for the leaderboard. All cheats turn off and stay locked, and "
              "\"Practice Tool Active\" goes away. Turn it off to use cheats again. Timers always work.";
+    Seen("speedrun_mode");
     if (ui::Toggle("srmode", "Speedrun mode", mode, o)) {
       if (mode) speedrun::Leave();
       else speedrun::GoLegit();
@@ -1129,6 +1585,8 @@ void SpeedrunGroup() {
   if (changed) speedrun::SetPick(pk);
   {
     const char* save = "\nThe game saves when the mission starts, so Continue in this slot will start there too.";
+    Seen("speedrun_start");
+    Seen("speedrun_reset");
     std::vector<Btn> b(3);
     b[0].label = "Start run";
     b[0].kind = BtnKind::Primary;
@@ -1303,20 +1761,18 @@ void TabHotkeys() {
   ui::Info("The only place to set keys. Press once = on, again = off. Keys do nothing while the menu is open.");
   if (features::SpeedrunMode())
     ui::Info("Speedrun mode: keys of cheats and presets do nothing now. Speedrun and Runs keys work.", ui::kOk);
-  ui::Group("Features");
-  const auto& all = features::All();
   {
-    auto lk = features::Lock();
-    features::Data& d = features::D();
-    using features::Group;
-    for (Group g : {Group::Speedrun, Group::Player, Group::Enemies, Group::Damage, Group::Speed, Group::Camera, Group::Cutscenes,
-                    Group::Missions, Group::Navigation, Group::Positions, Group::EnemyTools, Group::DamageLog,
-                    Group::Visuals, Group::Timers})
-      for (size_t i = 0; i < all.size(); ++i) {
-        if (all[i]->group != g || all[i]->noBind) continue;
-        BindRow(all[i]->id, all[i]->name, features::GroupName(g), &d.binds[i], true,
-                std::string("Bind: then press a key or a gamepad button combination (Esc cancels).\n") + all[i]->help);
-      }
+    std::vector<Btn> b(1);
+    b[0].label = g_cfg.bindsOpen ? "Close key bindings window" : "Open key bindings window";
+    b[0].kind = BtnKind::Primary;
+    b[0].desc = "A window with the keys of every feature of all tabs, in the order of the tabs. Click a key box "
+                "there, then press a key or a gamepad button combination.";
+    if (ui::Buttons("bindswin", b) == 0) {
+      g_cfg.bindsOpen = !g_cfg.bindsOpen;
+      if (!g_cfg.bindsOpen) CancelWindowCapture();
+      MarkConfigDirty();
+      LOG("menu: key bindings window %s (button)", g_cfg.bindsOpen ? "opened" : "closed");
+    }
   }
 
   ui::Group("Presets");
@@ -2166,7 +2622,7 @@ void Header(const ImVec2& wp, float W, std::string& tab) {
 // the list above never changes size when the mouse moves (user: the last row jumped away from under the cursor);
 // a longer text is cut, its last line ends with "...". Returns its height.
 constexpr int kHintLines = 4;
-float HintHeight(const std::string& text, float W, std::vector<std::string>* lines) {
+float HintHeight(const std::string& text, float W, std::vector<std::string>* lines, int maxLines) {
   float px = P(12), lh = px * 1.55f, wrap = W - P(20);
   ImFont* f = ui::Get(ui::F::Mono, px);
   float sc = px / f->FontSize;
@@ -2191,15 +2647,15 @@ float HintHeight(const std::string& text, float W, std::vector<std::string>* lin
     }
     s = e + 1;
   }
-  if (lines && (int)lines->size() > kHintLines) {
-    lines->resize(kHintLines);
+  if (lines && (int)lines->size() > maxLines) {
+    lines->resize(maxLines);
     std::string& last = lines->back();
     while (!last.empty() && (last.back() == ' ' || last.back() == '.')) last.pop_back();
     std::string dotted = last + "\xE2\x80\xA6";
     last = ui::Ellipsize(ui::F::Mono, px, dotted, wrap);  // fits: dotted itself, else cut with the dots
   }
   (void)n;
-  return P(7) * 2 + kHintLines * lh;
+  return P(7) * 2 + maxLines * lh;
 }
 
 void Window() {
@@ -2288,6 +2744,8 @@ void Window() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, P(2)));
     ImGui::BeginChild("##list", ImVec2(sz.x, listH), ImGuiChildFlags_AlwaysUseWindowPadding, 0);
     ImGui::PopStyleVar(2);
+    g_drawTab = tab;
+    g_seen[tab].clear();
     if (tab == "Cheats") TabCheats();
     else if (tab == "Practice") TabPractice();
     else if (tab == "Enemies") TabEnemies();
@@ -2298,6 +2756,7 @@ void Window() {
     else if (tab == "Hotkeys") TabHotkeys();
     else if (tab == "Settings") TabSettings();
     else if (tab == "Dev") TabDev();
+    g_drawTab.clear();
     ui::Space(6);
     ImGui::EndChild();
     if (!g_cfg.hideHints) {
@@ -2350,6 +2809,21 @@ void SetWindow(float x, float y, float w, float h) {
 
 void SetupStyle() { ui::ApplyImGuiStyle(1.0f); }
 
+void SetBindsWindow(int open) {
+  if (open >= 0) {
+    g_cfg.bindsOpen = open != 0;
+    MarkConfigDirty();
+  }
+}
+void PlaceBindsWindow(float x, float y, float w, float h) {
+  g_bindsSet[0] = x;
+  g_bindsSet[1] = y;
+  g_bindsSet[3] = h;
+  g_bindsSet[2] = w;
+}
+int BindsWindowColumns() { return g_bindsCols; }
+void CheckBindsLayout() { g_checkLayout = true; }
+
 void Draw() {
   ImGuiIO& io = ImGui::GetIO();
   ImVec2 ds = io.DisplaySize;
@@ -2371,6 +2845,8 @@ void Draw() {
   damagelog::Draw(state::menuOpen);
   timers::Draw(state::menuOpen);
   if (state::menuOpen) Window();
+  if (state::menuOpen && g_cfg.bindsOpen) BindsWindow();  // closes with the menu, opens again with it
+  if (g_checkLayout.exchange(false)) CheckBindLayout();
   ImGui::PopFont();
 }
 

@@ -1,4 +1,4 @@
-#include "autorun.h"
+﻿#include "autorun.h"
 
 #include <windows.h>
 
@@ -672,6 +672,18 @@ void Exec(const std::vector<std::string>& cmds) {
     } else if (cmd == "cam") {  // cam: camera controller, camera stack, chase settings
       std::vector<std::string> l = engine::OnGame<std::vector<std::string>>([] { return camera::DebugLines(); });
       for (const std::string& x : l) LOG("autorun: cam %s", x.c_str());
+    } else if (cmd == "freecam_at") {  // freecam_at x y z [yaw pitch]: the flying camera to a point (tests)
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 3) {
+        float v[5] = {0, 0, 0, 0, 0};
+        for (size_t i = 0; i < a.size() && i < 5; ++i) v[i] = (float)atof(a[i].c_str());
+        bool rot = a.size() >= 5;
+        bool ok = engine::OnGame<bool>([=] { return camera::FreecamSetAt(v[0], v[1], v[2], v[3], v[4], rot); });
+        LOG("autorun: freecam_at %.0f %.0f %.0f -> %s", v[0], v[1], v[2], ok ? "ok" : "freecam is off");
+      }
+    } else if (cmd == "freecam") {  // freecam: free camera / Dante / view hook state
+      std::vector<std::string> l = engine::OnGame<std::vector<std::string>>([] { return camera::FreecamDebug(); });
+      for (const std::string& x : l) LOG("autorun: freecam %s", x.c_str());
     } else if (cmd == "sendkey") {  // sendkey <vk> [seconds]: real key via SendInput (the game must be in front)
       std::vector<std::string> a = Words(arg);
       UINT vk = a.empty() ? 0 : (UINT)strtoul(a[0].c_str(), nullptr, 0);
@@ -695,6 +707,17 @@ void Exec(const std::vector<std::string>& cmds) {
       if (a.size() >= 4)
         menu::SetWindow((float)atof(a[0].c_str()), (float)atof(a[1].c_str()), (float)atof(a[2].c_str()),
                         (float)atof(a[3].c_str()));
+    } else if (cmd == "bindwin") {  // bindwin 0|1: KEY BINDINGS window (#21); bindwin cols: log its columns
+      if (arg == "cols") LOG("autorun: bindwin columns=%d", menu::BindsWindowColumns());
+      else menu::SetBindsWindow(atoi(arg.c_str()));
+    } else if (cmd == "bindwin_set") {  // bindwin_set x y w h: its place, fractions of the screen (w 0 = default)
+      std::vector<std::string> a = Words(arg);
+      if (a.size() >= 4)
+        menu::PlaceBindsWindow((float)atof(a[0].c_str()), (float)atof(a[1].c_str()), (float)atof(a[2].c_str()),
+                               (float)atof(a[3].c_str()));
+      else menu::PlaceBindsWindow(0, 0, 0, 0);
+    } else if (cmd == "bindlayout") {  // bindlayout: KEY BINDINGS order against the rows of the tabs (draw them first)
+      menu::CheckBindsLayout();
     } else if (cmd == "ui_set") {  // ui_set pause|hints|hidelog|dev|unknown 0|1: menu settings for tests
       std::vector<std::string> a = Words(arg);
       if (a.size() >= 2) {
@@ -939,12 +962,13 @@ void Exec(const std::vector<std::string>& cmds) {
       if (a.size() > 1 && a[0] == "dist") o.maxDistance = (float)atof(a[1].c_str());
       if (a.size() > 1 && a[0] == "width") o.thickness = (float)atof(a[1].c_str());
       if (a.size() > 1 && a[0] == "occlude") o.occlude = a[1] != "0";
+      if (a.size() > 1 && a[0] == "tgrid") o.triggerGrid = a[1] != "0";
       // Dev: a screen-wide plane this many metres ahead, depth tested like the lines (0 = off)
       if (a.size() > 1 && a[0] == "plane") visuals::SetDepthTestPlane((float)atof(a[1].c_str()));
       if (a.size() > 1 && a[0] == "occall") visuals::SetOccludeAll(a[1] != "0");  // Dev: bodies too
       visuals::SetOptions(o);
-      LOG("autorun: vis_opt labels %d dist %.0f width %.1f occlude %d (hiding %s)", o.labels, o.maxDistance,
-          o.thickness, o.occlude, visuals::OcclusionLive() ? "works" : "not available");
+      LOG("autorun: vis_opt labels %d dist %.0f width %.1f occlude %d trigger grid %d (hiding %s)", o.labels,
+          o.maxDistance, o.thickness, o.occlude, o.triggerGrid, visuals::OcclusionLive() ? "works" : "not available");
     } else if (cmd == "wait_idle_nav") {  // wait until a navigation load is finished, max <arg> s
       int maxS = arg.empty() ? 90 : atoi(arg.c_str());
       for (int i = 0; i < maxS * 4 && nav::Now().busy; ++i) Sleep(250);

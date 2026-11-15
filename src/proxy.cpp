@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <dinput.h>
 
+#include <algorithm>
 #include <atomic>
 #include <deque>
 #include <mutex>
@@ -76,6 +77,100 @@ void InjectData(void* self, DWORD cbObj, DIDEVICEOBJECTDATA* rgdod, DWORD* inOut
   }
 }
 
+// ---- Freecam: the game gets no keyboard / mouse while the camera flies (Esc passes: the pause menu works);
+// the mouse movement is collected for the camera instead.
+constexpr int kDikEscape = 0x01;
+
+// Device kind by its capabilities (the game may open the mouse / keyboard by instance GUID, not GUID_SysMouse):
+// 1 keyboard, 2 mouse, 0 other. DIDEVCAPS is the same for the A and W interfaces (vtable slot 3).
+int DeviceKind(void* self) {
+  static std::atomic<void*> dev[8];
+  static std::atomic<int> kind[8];
+  for (int i = 0; i < 8; ++i)
+    if (dev[i] == self) return kind[i];
+  DIDEVCAPS caps{};
+  caps.dwSize = sizeof caps;
+  using GetCaps_t = HRESULT(WINAPI*)(void*, DIDEVCAPS*);
+  auto fn = (GetCaps_t)(*reinterpret_cast<void***>(self))[3];
+  int k = 0;
+  if (SUCCEEDED(fn(self, &caps))) {
+    BYTE t = GET_DIDEVICE_TYPE(caps.dwDevType);
+    k = t == DI8DEVTYPE_KEYBOARD ? 1 : t == DI8DEVTYPE_MOUSE ? 2 : 0;
+  }
+  for (int i = 0; i < 8; ++i) {
+    void* expected = nullptr;
+    if (dev[i].compare_exchange_strong(expected, self)) {
+      kind[i] = k;
+      LOG("proxy: input device %p is a %s", self, k == 1 ? "keyboard" : k == 2 ? "mouse" : "other device");
+      break;
+    }
+  }
+  return k;
+}
+
+void FreecamState(void* self, DWORD cb, void* data) {
+  int kind = DeviceKind(self);
+  if (kind == 2 && (cb == sizeof(DIMOUSESTATE) || cb == sizeof(DIMOUSESTATE2))) {
+    auto* m = (DIMOUSESTATE*)data;
+    if (m->lX) state::fcStateX += m->lX;
+    if (m->lY) state::fcStateY += m->lY;
+    if (m->lZ) state::fcStateZ += m->lZ;
+    ++state::fcSeenState;
+    memset(data, 0, cb);
+  } else if (kind == 1 && cb == 256) {
+    uint8_t esc = ((uint8_t*)data)[kDikEscape];
+    memset(data, 0, cb);
+    ((uint8_t*)data)[kDikEscape] = esc;
+  }
+}
+
+// Buffered reads while muted: the events are taken (mouse movement for the camera) and the buffer is read down to
+// the bottom here. Returning "no events" makes the game stop reading for this frame, so with a real mouse (hundreds of
+// events a second) the rest would stay in DirectInput's buffer and reach the camera later and later (#20: "the camera
+// moves with a big delay"). Only Esc key events go back to the game.
+void FreecamData(void* self, DWORD cbObj, DIDEVICEOBJECTDATA* rgdod, DWORD* inOut, DWORD flags, DWORD capacity,
+                 GetDeviceData_t orig) {
+  if (!rgdod || cbObj < 16) {
+    if (!(flags & DIGDD_PEEK)) *inOut = 0;
+    return;
+  }
+  int kind = DeviceKind(self);
+  if (kind == 0) return;
+  bool peek = (flags & DIGDD_PEEK) != 0;
+  static std::atomic<bool> logged{false};
+  if (kind == 2 && !logged.exchange(true))
+    LOG("proxy: the game reads the mouse %lu buffered events at a time (flags %lu)", capacity, flags);
+  DIDEVICEOBJECTDATA esc[16];
+  DWORD nEsc = 0;
+  DWORD n = *inOut;
+  for (int round = 0; round < 64; ++round) {
+    for (DWORD i = 0; i < n; ++i) {
+      auto* e = (DIDEVICEOBJECTDATA*)((uint8_t*)rgdod + i * cbObj);
+      if (kind == 2) {
+        if (!peek) {
+          int v = (int)e->dwData;
+          if (e->dwOfs == DIMOFS_X) state::fcDataX += v;
+          else if (e->dwOfs == DIMOFS_Y) state::fcDataY += v;
+          else if (e->dwOfs == DIMOFS_Z) state::fcDataZ += v;
+          ++state::fcSeenData;
+        }
+      } else if (e->dwOfs == kDikEscape && nEsc < 16) {
+        memcpy(&esc[nEsc++], e, sizeof(DIDEVICEOBJECTDATA));
+      }
+    }
+    if (peek || capacity == 0 || n < capacity) break;  // the buffer is empty now
+    n = capacity;
+    if (FAILED(orig(self, cbObj, rgdod, &n, flags)) || n == 0) break;
+  }
+  DWORD out = std::min(nEsc, capacity);
+  for (DWORD i = 0; i < out; ++i) {
+    auto* e = (DIDEVICEOBJECTDATA*)((uint8_t*)rgdod + i * cbObj);
+    memset(e, 0, cbObj);
+    memcpy(e, &esc[i], sizeof(DIDEVICEOBJECTDATA));
+  }
+  *inOut = out;
+}
+
 // A and W interfaces have separate vtables, so two independent slots each.
 template <int I>
 struct CreateDeviceHook {
@@ -99,6 +194,8 @@ struct DeviceHooks {
     if (SUCCEEDED(hr) && data && state::menuOpen &&
         (cb == 256 || cb == sizeof(DIMOUSESTATE) || cb == sizeof(DIMOUSESTATE2)))
       memset(data, 0, cb);
+    else if (SUCCEEDED(hr) && data && state::freecamMute)
+      FreecamState(self, cb, data);
     else if (SUCCEEDED(hr) && data)
       InjectState(self, cb, data);
     return hr;
@@ -108,6 +205,8 @@ struct DeviceHooks {
     DWORD capacity = inOut ? *inOut : 0;
     HRESULT hr = origData(self, cbObj, rgdod, inOut, flags);
     if (SUCCEEDED(hr) && inOut && state::menuOpen) *inOut = 0;  // drop buffered events
+    else if (SUCCEEDED(hr) && inOut && state::freecamMute)
+      FreecamData(self, cbObj, rgdod, inOut, flags, capacity, origData);
     else if (SUCCEEDED(hr) && inOut) InjectData(self, cbObj, rgdod, inOut, flags, capacity);
     return hr;
   }

@@ -18,6 +18,10 @@ struct Config {
 
   // Menu window, fractions of the screen (w <= 0 = not saved yet).
   float winX = 0, winY = 0, winW = 0, winH = 0;
+  // KEY BINDINGS window (#21, Hotkeys tab): open (shown again with the menu) and its place, fractions of the
+  // screen (bindsW <= 0 = not moved yet: centred, the default size).
+  bool bindsOpen = false;
+  float bindsX = 0, bindsY = 0, bindsW = 0, bindsH = 0;
   // Height of the save list on the Saves tab in text lines (the player drags its bottom edge).
   float savesListRows = 6;
 

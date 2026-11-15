@@ -101,9 +101,12 @@ std::vector<Feature*> CreateVisualFeatures() {
       new Visual(Cat::Arena, "vis_arena_triggers", "Arena triggers",
                  "Green boxes that start arena fights or bring the next wave. Faint: already used, or not switched "
                  "on yet."),
+      new Visual(Cat::Loading, "vis_loading_zones", "Loading zones",
+                 "Blue: areas that load or unload the next part of the level when Dante enters them. The label names "
+                 "the parts. Faint: switched off for now."),
       new InvisibleWalls,
       new Visual(Cat::OtherTrigger, "vis_other_triggers", "Other triggers",
-                 "Grey: all other level triggers (doors, music, camera, tutorials, loading...)."),
+                 "Grey: all other level triggers (doors, music, camera, tutorials...)."),
   };
 }
 

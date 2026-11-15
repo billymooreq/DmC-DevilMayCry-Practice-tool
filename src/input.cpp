@@ -41,6 +41,11 @@ BOOL WINAPI hkClipCursor(const RECT* r) {
 DWORD WINAPI hkXInputGetState(DWORD idx, XINPUT_STATE* st) {
   DWORD r = oXInputGetState(idx, st);
   if (r == ERROR_SUCCESS && st && state::menuOpen) memset(&st->Gamepad, 0, sizeof(st->Gamepad));
+  else if (r == ERROR_SUCCESS && st && state::freecamMute) {  // Freecam: only Start (pause menu) reaches the game
+    WORD keep = st->Gamepad.wButtons & XINPUT_GAMEPAD_START;
+    memset(&st->Gamepad, 0, sizeof(st->Gamepad));
+    st->Gamepad.wButtons = keep;
+  }
   return r;
 }
 
@@ -54,7 +59,37 @@ LRESULT CallOrig(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                       : CallWindowProcA(g_origWndProc, hwnd, msg, wp, lp);
 }
 
+// Freecam: window input the game would see is dropped (Esc and Alt+F4 pass); Raw Input mouse movement is
+// collected for the camera (if the game reads the mouse that way).
+bool FreecamMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& ret) {
+  if (!IsInputMessage(msg)) return false;
+  if (msg == WM_INPUT) {
+    RAWINPUT ri;
+    UINT sz = sizeof ri;
+    if (GetRawInputData((HRAWINPUT)lp, RID_INPUT, &ri, &sz, sizeof(RAWINPUTHEADER)) != (UINT)-1 &&
+        ri.header.dwType == RIM_TYPEMOUSE) {
+      if (!(ri.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+        state::fcRawX += ri.data.mouse.lLastX;
+        state::fcRawY += ri.data.mouse.lLastY;
+      }
+      if (ri.data.mouse.usButtonFlags & RI_MOUSE_WHEEL) state::fcRawZ += (SHORT)ri.data.mouse.usButtonData;
+      ++state::fcSeenRaw;
+    }
+    ret = DefWindowProcW(hwnd, msg, wp, lp);  // frees the raw input buffer
+    return true;
+  }
+  bool key = (msg >= WM_KEYFIRST && msg <= WM_KEYLAST) || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP;
+  if (key && wp == VK_ESCAPE) return false;
+  if (msg == WM_SYSKEYDOWN && wp == VK_F4) return false;
+  ret = 0;
+  return true;
+}
+
 LRESULT CALLBACK HookedWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  if (!state::menuOpen && state::freecamMute) {
+    LRESULT r = 0;
+    if (FreecamMessage(hwnd, msg, wp, lp, r)) return r;
+  }
   if (state::menuOpen) {
     LPARAM imLp = lp;
     if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST && msg != WM_MOUSEWHEEL && msg != WM_MOUSEHWHEEL) {

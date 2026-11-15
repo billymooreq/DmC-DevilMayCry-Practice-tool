@@ -67,6 +67,7 @@ struct RowOpt {
   bool picked = false;           // list rows: picked item (dark red, "› ")
 };
 void Group(const char* label);
+const std::string& CurrentGroup();  // the last Group() label drawn
 // [ON] / [off] at the right; returns true on a click (never when locked).
 bool Toggle(const char* id, const char* label, bool on, const RowOpt& o = {});
 // A row with any right text (actions, list items). Returns true on a click.
@@ -121,6 +122,13 @@ enum class KeyState { None, Set, Conflict, Waiting };
 // Hotkeys tab: name, group, [key], Bind, x. Returns 1 = Bind clicked, 2 = x clicked, 0.
 int KeyRow(const char* id, const char* label, const char* group, const std::string& key, KeyState st, bool canClear,
            const std::string& desc);
+// KEY BINDINGS window (#21): a big section heading (a tab's name, Barlow kSectionCss, red line under it) and a
+// row: the name (plain text, not clickable) + a key box at the right (click = wait for a key, x = clear).
+// Returns 1 = key box clicked, 2 = x clicked, 0.
+constexpr float kSectionCss = 17.0f;
+void Section(const char* label);
+int KeyCell(const char* id, const char* label, const std::string& key, KeyState st, const std::string& desc,
+            const std::string& keyDesc);
 bool Picture(const char* id, ImTextureID tex, float w, float h, const char* caption);  // true = clicked
 void Space(float css);
 bool AnyPopupOpen();  // a dropdown is open (the menu must not react to the rows under it)

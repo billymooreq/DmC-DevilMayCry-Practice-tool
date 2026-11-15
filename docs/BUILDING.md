@@ -42,11 +42,11 @@ Results go to `test_result.txt`.
 |---|---|
 | `src/dllmain.cpp`, `src/proxy.cpp`, `src/dinput8.def` | DLL entry, proxy exports to the real `dinput8.dll`, DirectInput hooks |
 | `src/version.*` | game build detection, tool version (`kToolVersion`) |
-| `src/d3d9_hook.*`, `src/menu.*`, `src/input.*` | D3D9 hooks, ImGui menu, keyboard / mouse / gamepad |
+| `src/d3d9_hook.*`, `src/menu.*`, `src/input.*` | D3D9 hooks, ImGui menu and the key bindings window, keyboard / mouse / gamepad |
 | `src/ui.*`, `src/resources.rc` | menu look: palette, fonts embedded in the DLL, list-row widgets, scaling |
 | `src/devtools.*` | Dev room save protection, the game's debug menu |
 | `src/cutscenes.*`, `src/popups.*` | Skip cutscenes, Skip hints & pop-ups |
-| `src/camera.*` | Unlock camera |
+| `src/camera.*` | Unlock camera, Freecam |
 | `src/timers.*`, `src/speedrun.*` | Runs tab: LiveSplit-rule timers, Speedrun mode, Start / Restart run, PB and sum of best |
 | `src/window_mode.*` | Fullscreen / Borderless / Window and the game restart |
 | `src/ue3/` | UE3 reflection (GNames, GObjects, layouts), ProcessEvent hook and calls, Dev dumps |

@@ -1,4 +1,4 @@
-// The v0.11 look: fonts built into the DLL, the menu scale and the row widgets. Rules: ui_guidelines.md.
+﻿// The v0.11 look: fonts built into the DLL, the menu scale and the row widgets. Rules: ui_guidelines.md.
 #include "ui.h"
 
 #include <windows.h>
@@ -60,6 +60,7 @@ std::vector<std::pair<F, int>> Desired() {
   for (float css : {13.0f, 12.0f, 11.0f, 10.0f}) AddWant(v, F::Mono, css * g_menu);
   for (float css : {13.0f, 11.0f}) AddWant(v, F::MonoBold, css * g_menu);
   AddWant(v, F::Title, 13 * g_menu);
+  AddWant(v, F::Title, kSectionCss * g_menu);  // KEY BINDINGS window: section headings (#21)
   for (float css : {13.0f, 11.0f}) AddWant(v, F::Mono, css * g_screen * kBoost);   // damage log
   for (float css : {13.0f, 11.0f}) AddWant(v, F::MonoBold, css * g_screen * kBoost);
   AddWant(v, F::Title, 13 * g_screen * kBoost);
@@ -277,7 +278,11 @@ const std::string& Hint() { return g_hint; }
 void ClearHint() { g_hint.clear(); }
 
 // ------------------------------------------------------------------ rows
+std::string g_group;  // the last group heading drawn (menu: which group a row is in, for the bindings check)
+const std::string& CurrentGroup() { return g_group; }
+
 void Group(const char* label) {
+  g_group = label;
   ImVec2 p = ImGui::GetCursorScreenPos();
   float px = P(11);
   Text(DL(), F::MonoBold, px, ImVec2(p.x + P(10), p.y + P(7)), kAccent, Upper(label).c_str(), px * 0.1f);
@@ -831,6 +836,74 @@ int KeyRow(const char* id, const char* label, const char* group, const std::stri
   };
   if (canClear && st != KeyState::None && st != KeyState::Waiting) smallBtn("\xC3\x97", 2);
   smallBtn(st == KeyState::Waiting ? "Cancel" : "Bind", 1);
+  ImGui::SetCursorScreenPos(ImVec2(r.p.x, r.p.y + r.h));
+  ImGui::Dummy(ImVec2(0, 0));
+  ImGui::PopID();
+  return res;
+}
+
+void Section(const char* label) {
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  float w = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+  float px = P(kSectionCss);
+  Text(DL(), F::Title, px, ImVec2(p.x + P(10), p.y + P(7)), kWhite, Upper(label).c_str(), px * 0.12f);
+  float ly = p.y + P(7) + px * 1.15f + P(2);
+  DL()->AddRectFilled(ImVec2(p.x + P(10), ly), ImVec2(p.x + w - P(10), ly + std::max(1.0f, std::round(P(2)))), kAccent);
+  ImGui::Dummy(ImVec2(w, ly - p.y + P(2)));
+}
+
+int KeyCell(const char* id, const char* label, const std::string& key, KeyState st, const std::string& desc,
+            const std::string& keyDesc) {
+  ImGui::PushID(id);
+  Row r = BeginRow("row", 22, true);  // the name is not a button: the row only shows the hint
+  ImDrawList* dl = DL();
+  float px = P(13), sp = P(11), padL = P(18), padR = P(10), bh = P(18);
+  float line = std::max(1.0f, std::round(P(1)));
+  float xW = P(18), boxW = std::min(P(120), std::max(P(60), r.w * 0.4f));
+  float x1 = r.p.x + r.w - padR;
+  float bx1 = x1 - xW - P(3), bx0 = bx1 - boxW;
+  ImVec2 ba(bx0, r.p.y + (r.h - bh) * 0.5f), bb(bx1, ba.y + bh);
+  // key box
+  ImGui::SetCursorScreenPos(ba);
+  bool hit = ImGui::InvisibleButton("key", ImVec2(boxW, bh));
+  bool bhov = ImGui::IsItemHovered();
+  if (r.hov || bhov) dl->AddRectFilled(r.p, ImVec2(r.p.x + r.w, r.p.y + r.h), IM_COL32(0x1F, 0x1F, 0x1F, 255));
+  // A long name is cut in the middle when it ends in "(...)": "Freecam: carry Dante / let… (he hangs)" - the end
+  // tells two keys apart. The hint then starts with the whole name.
+  float maxL = bx0 - r.p.x - padL - P(8);
+  std::string name = label;
+  bool cut = Measure(F::Mono, px, label).x > maxL;
+  if (cut) {
+    size_t op = name.rfind(" (");
+    float sw = op != std::string::npos && name.back() == ')' ? Measure(F::Mono, px, name.c_str() + op).x : 1e9f;
+    name = sw <= maxL * 0.45f ? Ellipsize(F::Mono, px, name.substr(0, op), maxL - sw) + name.substr(op)
+                              : Ellipsize(F::Mono, px, name, maxL);
+  }
+  Text(dl, F::Mono, px, ImVec2(r.p.x + padL, TextY(r, px)), kText, name.c_str());
+  ImU32 border = st == KeyState::Waiting ? kAccent : st == KeyState::Conflict ? kErr : bhov ? kAccent : kFieldBorder;
+  dl->AddRectFilled(ba, bb, bhov && st != KeyState::Waiting ? kSelBg : kFieldBg);
+  dl->AddRect(ba, bb, border, 0, 0, line);
+  std::string kt = st == KeyState::Waiting ? "press\xE2\x80\xA6" : st == KeyState::None ? "\xE2\x80\x94" : key;
+  F kf = st == KeyState::None ? F::Mono : F::MonoBold;
+  ImU32 kc = st == KeyState::Waiting ? kToast : st == KeyState::Conflict ? kErr : st == KeyState::None ? kLocked : kWhite;
+  std::string shown = Ellipsize(kf, sp, kt, boxW - P(12));
+  Text(dl, kf, sp, ImVec2(ba.x + P(6), std::floor(ba.y + (bh - sp) * 0.5f)), kc, shown.c_str());
+  int res = hit ? 1 : 0;
+  if (r.hov || bhov) SetHint((cut ? std::string(label) + "\n" : std::string()) + (bhov && !keyDesc.empty() ? keyDesc : desc));
+  // x: clears the key (only when there is one)
+  if (st == KeyState::Set || st == KeyState::Conflict) {
+    ImVec2 xa(x1 - xW, ba.y), xb(x1, bb.y);
+    ImGui::SetCursorScreenPos(xa);
+    bool xhit = ImGui::InvisibleButton("clear", ImVec2(xW, bh));
+    bool xh = ImGui::IsItemHovered();
+    dl->AddRectFilled(xa, xb, xh ? kAccent : kBtnBg);
+    dl->AddRect(xa, xb, xh ? kAccent : kBtnBorder, 0, 0, line);
+    ImVec2 xs = Measure(F::Mono, sp, "\xC3\x97");
+    Text(dl, F::Mono, sp, ImVec2(xa.x + (xW - xs.x) * 0.5f, std::floor(xa.y + (bh - sp) * 0.5f)), xh ? kWhite : kText,
+         "\xC3\x97");
+    if (xh) SetHint("Clears this key.");
+    if (xhit) res = 2;
+  }
   ImGui::SetCursorScreenPos(ImVec2(r.p.x, r.p.y + r.h));
   ImGui::Dummy(ImVec2(0, 0));
   ImGui::PopID();

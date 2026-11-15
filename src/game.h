@@ -64,7 +64,9 @@ struct Pov {
   int rot[3] = {0, 0, 0};  // pitch, yaw, roll (65536 = 360 degrees)
   float fov = 90.0f;
 };
-bool CameraPov(const World& w, Pov& out);
+bool CameraPov(const World& w, Pov& out);  // Freecam's view while it flies
+bool CameraPovGame(const World& w, Pov& out);  // always the game's own camera
+void SetPovOverride(bool on, const Pov* p);    // Freecam (game thread)
 
 // Active enemies of the current mission (DVGameInfo.m_EnemyManager). Game thread.
 std::vector<uintptr_t> Pawns();

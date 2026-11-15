@@ -40,7 +40,7 @@ struct ParamDef {
   std::string Text(float v) const;        // "1.5x", "on", "Level flight"
 };
 
-constexpr int kMaxParams = 2;
+constexpr int kMaxParams = 4;
 using Params = std::array<float, kMaxParams>;
 
 struct Ctx {
@@ -65,6 +65,8 @@ class Feature {
   std::vector<const char*> losesTo;
   // A multiplier (Damage dealt, Game speed...): no on/off of its own - it is on while its value is not the default.
   bool autoOn = false;
+  // Key it has until the player changes it in the Hotkeys tab (a cleared key is saved as cleared).
+  hotkeys::Bind defBind;
 
   virtual ~Feature() = default;
   // Game thread, in a mission. Enable: false = try again next frame. Disable must restore every change it made

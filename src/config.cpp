@@ -55,6 +55,14 @@ bool LoadConfig() {
       c.winW = w.value("w", 0.0f);
       c.winH = w.value("h", 0.0f);
     }
+    if (j.contains("binds_window") && j["binds_window"].is_object()) {  // #21; older configs have none
+      const json& w = j["binds_window"];
+      c.bindsOpen = w.value("open", false);
+      c.bindsX = w.value("x", 0.0f);
+      c.bindsY = w.value("y", 0.0f);
+      c.bindsW = w.value("w", 0.0f);
+      c.bindsH = w.value("h", 0.0f);
+    }
     if (j.contains("hooks")) {
       const json& h = j["hooks"];
       c.hookD3D9 = h.value("d3d9", c.hookD3D9);
@@ -108,6 +116,7 @@ bool SaveConfig() {
   j["window_mode"] = winmode::ModeKey(c.windowMode);
   j["saves_list_rows"] = c.savesListRows;
   if (c.winW > 0) j["window"] = {{"x", c.winX}, {"y", c.winY}, {"w", c.winW}, {"h", c.winH}};
+  j["binds_window"] = {{"open", c.bindsOpen}, {"x", c.bindsX}, {"y", c.bindsY}, {"w", c.bindsW}, {"h", c.bindsH}};
   j["hooks"] = {{"d3d9", c.hookD3D9},     {"render", c.renderHook}, {"wndproc", c.hookWndProc},
                 {"dinput", c.hookDInput}, {"xinput", c.hookXInput}, {"cursor", c.hookCursor}};
   j["debug"] = {{"menu_open_at_start", c.debugMenuOpenAtStart},

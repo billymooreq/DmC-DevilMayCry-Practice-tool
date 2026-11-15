@@ -5,12 +5,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <cstring>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -326,12 +328,23 @@ int g_probe = 0;  // Dev: log this many strikes / projectiles in detail (their f
 std::unordered_set<uintptr_t> g_probed;
 
 // Triggers (Kismet Touch / Used events with an actor in the level as their originator).
-enum class TKind { Other, Cutscene, Arena };
+enum class TKind { Other, Cutscene, Arena, Loading };
 struct Trigger {
   uintptr_t ev = 0, orig = 0;
   TKind kind = TKind::Other;
   std::string label, path;
+  std::string loads;  // loading zones: "loads Hall1_Geom; unloads Foyer_Geom" (may be empty)
 };
+// Loading zones that are not script triggers: the level's LevelStreamingVolumes. The engine keeps their levels
+// loaded / visible while the view point is inside one of them.
+struct StreamVol {
+  uintptr_t vol = 0;
+  std::string label;              // "Loading: Hall1_Geom, Hall2_Geom"
+  std::vector<uintptr_t> levels;  // LevelStreaming objects
+};
+std::vector<StreamVol> g_streamVols;
+std::unordered_map<uintptr_t, uint8_t> g_inVol;       // volume -> 1 when Dante was inside (log)
+std::unordered_map<uintptr_t, uint8_t> g_levelState;  // LevelStreaming -> bit 0 loaded, bit 1 visible (log)
 std::vector<Trigger> g_triggers;
 // Check of the classification in the log: a trigger fired -> what the game did in the next seconds.
 std::unordered_map<uintptr_t, int> g_trigCount;
@@ -347,7 +360,7 @@ struct Scan {
   int next = 0;
   std::vector<uintptr_t> events;
   std::unordered_multimap<int, uintptr_t> remote;  // SeqEvent_RemoteEvent by EventName index
-  std::vector<uintptr_t> walls, pains;
+  std::vector<uintptr_t> walls, pains, streamVols;
 } g_scan;
 std::vector<uintptr_t> g_walls;  // blocking volumes of the loaded levels (last finished scan)
 std::vector<uintptr_t> g_pains;  // pain volumes of the loaded levels (Level hazards)
@@ -355,8 +368,21 @@ ULONGLONG g_nextScan = 0;
 // BrushComponent -> its convex elements in local space: outline edges + a grid on the faces (invisible walls)
 struct ConvexShape {
   std::vector<std::pair<Vec, Vec>> edges, grid;
+  std::vector<std::pair<int, int>> gridFaces;  // grid lines of each face: [first, last)
 };
 std::unordered_map<uintptr_t, ConvexShape> g_convex;
+// Trigger grids in world space (loading zones are whole rooms: thousands of grid lines). Rebuilt when the
+// component moves; a face whose box is farther than 25 m from the camera is skipped as a whole.
+struct WorldGrid {
+  float m[16] = {};
+  std::vector<std::pair<Vec, Vec>> lines;
+  struct FaceBox {
+    Vec lo, hi;
+    int first, last;
+  };
+  std::vector<FaceBox> faces;
+};
+std::unordered_map<uintptr_t, WorldGrid> g_worldGrid;
 std::atomic<bool> g_wallGrid{true};
 // hidden behind walls (render thread): lines for the D3D9 hook's layer, groups seen by its occlusion queries
 std::atomic<bool> g_occLive{false};
@@ -374,7 +400,8 @@ enum ClassFlag : uint32_t {
   kVolArc = 2048, kVolCapsule = 4096, kVolCone = 8192, kVolTwoArcs = 16384, kCylinderComp = 32768,
   kBrushComp = 65536, kDirector = 131072, kSequenceEvent = 262144, kWall = 524288,
   kExplosion = 1u << 20, kRadialDamager = 1u << 21, kBallistic = 1u << 22, kShockwave = 1u << 23, kPainVolume = 1u << 24,
-  kAttackActor = 1u << 25, kChargeAction = 1u << 26, kEnvAttacker = 1u << 27,
+  kAttackActor = 1u << 25, kChargeAction = 1u << 26, kEnvAttacker = 1u << 27, kStreamAct = 1u << 28,
+  kStreamVol = 1u << 29,
 };
 std::unordered_map<uintptr_t, uint32_t> g_classFlags;
 uint32_t Flags(uintptr_t obj) {
@@ -399,6 +426,11 @@ uint32_t Flags(uintptr_t obj) {
       is("SeqAct_ToggleCinematicMode") || is("NTSeqAct_ShowCutsceneTextScreen"))
     f |= kCutscene;
   if (is("SeqAct_Interp")) f |= kInterp;
+  // ... or loads / unloads parts of the level (a loading zone)
+  if (is("SeqAct_LevelStreamingBase") || is("SeqAct_LevelVisibility") || is("SeqAct_PrepareMapChange") ||
+      is("SeqAct_CommitMapChange") || is("SeqAct_NT_StreamLevelsBehindBink") || is("DVSeqAct_LoadingScreen"))
+    f |= kStreamAct;
+  if (is("LevelStreamingVolume")) f |= kStreamVol;
   if (is("Sequence")) f |= kSequence;
   if (is("SeqAct_ActivateRemoteEvent")) f |= kActivateRemote;
   if (is("SeqAct_FinishSequence")) f |= kFinishSequence;
@@ -743,7 +775,7 @@ void CaptureProjectile(uintptr_t proj) {
 std::unordered_set<uintptr_t> g_attackActors;
 std::unordered_map<uintptr_t, double> g_charges;  // charge actions -> last OnTick
 bool DrawVolume(const Sink& sink, uintptr_t actor, const game::Pov& cam, float maxDist, Vec& top, bool fade = false,
-                bool grid = false);
+                bool grid = false, bool gridNear = false);
 void CaptureAttackActor(uintptr_t a, const game::Pov& cam) {
   double& last = g_projectiles[a];
   if (last > 0 && g_clock - last < 1.0 / 60.0) return;
@@ -1117,13 +1149,89 @@ void AuditTakeDamage(uintptr_t self) {
 }
 
 // ------------------------------------------------------------------ triggers
+// A streaming action this many script nodes after the trigger still makes it a loading zone; farther ones are the
+// tail of long scripts (the rest of the level hangs on some triggers).
+constexpr int kStreamMaxDepth = 12;
+
+// Name of a streaming level for labels: the package name without the map's prefix ("Ch2_Hall1_Geom" -> "Hall1_Geom").
+// Parts of one room come as Hall1 / Hall1_Geom / Hall1_CMBT: the label shows the room once ("Hall1").
+std::string LevelLabel(std::string n) {
+  size_t u = n.find('_');
+  if (u != std::string::npos && u <= 5 && u + 1 < n.size() && (n[0] == 'C' || n[0] == 'c')) n = n.substr(u + 1);
+  for (const char* suf : {"_geom", "_cmbt", "_combat", "_dl", "_audio", "_kismet", "_bg"}) {
+    size_t l = strlen(suf);
+    if (n.size() > l + 1) {
+      std::string tail = n.substr(n.size() - l);
+      std::transform(tail.begin(), tail.end(), tail.begin(), [](unsigned char c) { return (char)tolower(c); });
+      if (tail == suf) {
+        n.resize(n.size() - l);
+        break;
+      }
+    }
+  }
+  return n;
+}
+std::string JoinLevels(const std::vector<std::string>& v, size_t max = 3) {
+  std::vector<std::string> rooms;
+  for (const std::string& n : v) {
+    std::string r = LevelLabel(n);
+    if (std::find(rooms.begin(), rooms.end(), r) == rooms.end()) rooms.push_back(r);
+  }
+  std::string s;
+  for (size_t i = 0; i < rooms.size() && i < max; ++i) s += (i ? ", " : "") + rooms[i];
+  if (rooms.size() > max) s += " +" + std::to_string(rooms.size() - max);
+  return s;
+}
+// What a level streaming action of the level script loads / unloads. input: the action's input link the script
+// fires (0 = Load / Make visible, 1 = Unload / Hide).
+void StreamTargets(uintptr_t op, int input, std::vector<std::string>& loads, std::vector<std::string>& unloads) {
+  std::vector<std::string>& out = input == 1 ? unloads : loads;
+  auto add = [&](std::string n) {
+    if (!n.empty() && n != "None" && std::find(out.begin(), out.end(), n) == out.end()) out.push_back(n);
+  };
+  auto one = [&](uintptr_t lvl, const ue3::FNameRaw& nm) {
+    std::string n = lvl && ue3::IsObject(lvl) ? game::GetName(lvl, "PackageName") : "";
+    add(n.empty() ? ue3::NameOf(nm) : n);
+  };
+  ue3::TArrayRaw arr{};
+  if (ReadArr(op, "Levels", arr)) {  // SeqAct_MultiLevelStreaming: LevelStreamingNameCombo { Level, LevelName } (0xC)
+    for (int i = 0; i < arr.num && i < 64; ++i) {
+      ue3::FNameRaw nm{};
+      util::Read(arr.data + i * 0xC + 4, nm);
+      one(util::ReadOr<uintptr_t>(arr.data + i * 0xC), nm);
+    }
+    return;
+  }
+  ue3::FNameRaw nm{};
+  bool hasName = ReadAt(op, "LevelName", nm);
+  if (hasName || game::FieldOf(op, "Level").ok()) {  // SeqAct_LevelStreaming / SeqAct_LevelVisibility
+    one(GetObj(op, "Level"), nm);
+    return;
+  }
+  if (ReadAt(op, "MainLevelName", nm)) {  // SeqAct_PrepareMapChange
+    add(ue3::NameOf(nm));
+    if (ReadArr(op, "InitiallyLoadedSecondaryLevelNames", arr))
+      for (int i = 0; i < arr.num && i < 64; ++i)
+        if (util::Read(arr.data + i * 8, nm)) add(ue3::NameOf(nm));
+  }
+}
+
 // What a Kismet event leads to: breadth-first through output links, sub-sequences and remote events; the
-// nearest arena / cutscene action decides.
-TKind Classify(uintptr_t ev, std::string& path, std::vector<std::string>* visited = nullptr) {
-  std::deque<std::pair<uintptr_t, int>> q{{ev, 0}};
+// nearest arena / cutscene action decides; else a level streaming action near the start makes it a loading zone.
+// loads: for a loading zone, what it streams ("loads Hall1_Geom, Hall2_Geom; unloads Foyer_Geom").
+TKind Classify(uintptr_t ev, std::string& path, std::vector<std::string>* visited = nullptr,
+               std::string* loads = nullptr) {
+  struct Node {
+    uintptr_t op;
+    int d, input;
+  };
+  std::deque<Node> q{{ev, 0, 0}};
   std::unordered_set<uintptr_t> seen{ev};
-  auto push = [&](uintptr_t op, int d) {
-    if (op && d < 40 && seen.size() < 600 && seen.insert(op).second && ue3::IsObject(op)) q.push_back({op, d});
+  std::vector<std::string> in, out;  // streaming actions on the way: levels loaded / unloaded
+  int streamDepth = -1, streamActs = 0;
+  std::string streamClass;
+  auto push = [&](uintptr_t op, int d, int input = 0) {
+    if (op && d < 40 && seen.size() < 600 && seen.insert(op).second && ue3::IsObject(op)) q.push_back({op, d, input});
   };
   auto pushOutputs = [&](uintptr_t op, int d) {
     ue3::TArrayRaw outs{};
@@ -1131,21 +1239,29 @@ TKind Classify(uintptr_t ev, std::string& path, std::vector<std::string>* visite
     for (int i = 0; i < outs.num && i < 32; ++i) {
       ue3::TArrayRaw links{};  // SeqOpOutputLink (0x38): Links TArray<SeqOpOutputInputLink (8)> first
       if (!util::Read(outs.data + i * 0x38, links) || links.num <= 0 || links.num > 64) continue;
-      for (int k = 0; k < links.num; ++k) push(util::ReadOr<uintptr_t>(links.data + k * 8), d + 1);
+      for (int k = 0; k < links.num; ++k)  // SeqOpOutputInputLink { LinkedOp, InputLinkIdx }
+        push(util::ReadOr<uintptr_t>(links.data + k * 8), d + 1, util::ReadOr<int>(links.data + k * 8 + 4));
     }
   };
+  // An arena or a cutscene wins over loading: that is what the player plans around, and many of them stream the
+  // next rooms on the way. The path keeps the fact (Dev list).
+  auto note = [&] { return streamActs ? " (+ streaming at depth " + std::to_string(streamDepth) + ")" : std::string(); };
   while (!q.empty()) {
-    auto [op, d] = q.front();
+    auto [op, d, input] = q.front();
     q.pop_front();
     if (visited) visited->push_back(ue3::ClassNameOf(op));
     uint32_t f = Flags(op);
     if (f & kArena) {
-      path = ue3::ClassNameOf(op);
+      path = ue3::ClassNameOf(op) + note();
       return TKind::Arena;
     }
     if (f & kCutscene) {
-      path = ue3::ClassNameOf(op);
+      path = ue3::ClassNameOf(op) + note();
       return TKind::Cutscene;
+    }
+    if ((f & kStreamAct) && d <= kStreamMaxDepth) {
+      if (!streamActs++) streamDepth = d, streamClass = ue3::ClassNameOf(op);
+      StreamTargets(op, input, in, out);
     }
     if (f & kInterp) {
       uintptr_t data = GetObj(op, "InterpData");
@@ -1153,7 +1269,7 @@ TKind Classify(uintptr_t ev, std::string& path, std::vector<std::string>* visite
       if (data && ReadArr(data, "InterpGroups", groups))
         for (int i = 0; i < groups.num && i < 128; ++i)
           if (Flags(util::ReadOr<uintptr_t>(groups.data + i * 4)) & kDirector) {
-            path = "matinee with camera cuts " + ue3::ObjName(op);
+            path = "matinee with camera cuts " + ue3::ObjName(op) + note();
             return TKind::Cutscene;
           }
     }
@@ -1174,6 +1290,16 @@ TKind Classify(uintptr_t ev, std::string& path, std::vector<std::string>* visite
       }
     }
     pushOutputs(op, d);
+  }
+  if (streamActs) {
+    path = streamClass + " at depth " + std::to_string(streamDepth) + " (" + std::to_string(streamActs) +
+           " streaming actions)";
+    if (loads) {
+      loads->clear();
+      if (!in.empty()) *loads = "loads " + JoinLevels(in);
+      if (!out.empty()) *loads += (loads->empty() ? "" : "; ") + ("unloads " + JoinLevels(out));
+    }
+    return TKind::Loading;
   }
   path = "nothing found in " + std::to_string(seen.size()) + " script nodes";
   return TKind::Other;
@@ -1208,10 +1334,11 @@ void ScanTick(const game::World& w) {
     uintptr_t o = ue3::Object(i);
     if (!o) continue;
     uint32_t f = Flags(o);
-    if (!(f & (kSequenceEvent | kWall | kPainVolume))) continue;
+    if (!(f & (kSequenceEvent | kWall | kPainVolume | kStreamVol))) continue;
     if (ue3::ObjName(o).rfind("Default__", 0) == 0) continue;
     if (f & kWall) g_scan.walls.push_back(o);
     if (f & kPainVolume) g_scan.pains.push_back(o);
+    if (f & kStreamVol) g_scan.streamVols.push_back(o);
     if (f & kTouchEvent) g_scan.events.push_back(o);
     if (f & kRemoteEvent) {
       ue3::FNameRaw nm{};
@@ -1244,8 +1371,9 @@ void ScanTick(const game::World& w) {
     if (old != g_triggers.end()) {
       t.kind = old->kind;
       t.path = old->path;
+      t.loads = old->loads;
     } else {
-      t.kind = Classify(ev, t.path);
+      t.kind = Classify(ev, t.path, nullptr, &t.loads);
     }
     std::string name = game::GetStr(ev, "ObjComment");
     if (name.empty()) name = ue3::ObjName(orig);
@@ -1253,12 +1381,49 @@ void ScanTick(const game::World& w) {
     const char* kind = t.kind == TKind::Cutscene                                      ? "Cutscene"
                        : t.kind == TKind::Arena && t.path.find("Wave") != std::string::npos ? "Arena wave"
                        : t.kind == TKind::Arena                                         ? "Arena"
+                       : t.kind == TKind::Loading                                       ? "Loading"
                                                                                         : "Trigger";
-    t.label = std::string(kind) + ": " + Shorten(name, 36);
+    // loading zones: what they load / unload, when the script names it
+    t.label = std::string(kind) + ": " + (t.kind == TKind::Loading && !t.loads.empty() ? Shorten(t.loads, 70) : Shorten(name, 36));
     out.push_back(std::move(t));
   }
   if (out.size() != g_triggers.size()) LOG("visuals: %zu level triggers on %s", out.size(), w.map.c_str());
   g_triggers = std::move(out);
+
+  // LevelStreamingVolumes: the engine streams their levels in while the view point is inside (not a script trigger)
+  std::vector<StreamVol> vols;
+  int whole = 0;
+  for (uintptr_t a : g_scan.streamVols) {
+    if (!game::Alive(a) || GetBool(a, "bDeleteMe") || !levels.count(ue3::ObjOuter(a))) continue;
+    if (std::any_of(g_triggers.begin(), g_triggers.end(), [&](const Trigger& t) { return t.orig == a; })) continue;
+    // volumes over the whole map (lights, sound, cutscene sets kept loaded everywhere) are not a passage: skipped
+    struct {
+      Vec o, e;
+      float r;
+    } bd{};
+    uintptr_t comp = GetObj(a, "CollisionComponent");
+    if (comp && ReadAt(comp, "Bounds", bd) && std::max({bd.e.x, bd.e.y, bd.e.z}) > 50000) {
+      ++whole;
+      continue;
+    }
+    StreamVol v;
+    v.vol = a;
+    std::vector<std::string> names;
+    ue3::TArrayRaw ls{};
+    if (ReadArr(a, "StreamingLevels", ls))
+      for (int i = 0; i < ls.num && i < 64; ++i) {
+        uintptr_t l = util::ReadOr<uintptr_t>(ls.data + i * 4);
+        if (!l || !ue3::IsObject(l)) continue;
+        v.levels.push_back(l);
+        std::string n = game::GetName(l, "PackageName");
+        if (!n.empty()) names.push_back(n);
+      }
+    v.label = "Loading: " + (names.empty() ? Shorten(ue3::ObjName(a), 36) : JoinLevels(names));
+    vols.push_back(std::move(v));
+  }
+  if (vols.size() != g_streamVols.size())
+    LOG("visuals: %zu level streaming volumes on %s (+%d over the whole map, not drawn)", vols.size(), w.map.c_str(), whole);
+  g_streamVols = std::move(vols);
 }
 
 // Grid lines on one flat face (points of a convex polygon in local space, normal n): lines every ~1 m along the
@@ -1356,7 +1521,11 @@ const ConvexShape& ConvexOf(uintptr_t brush) {
       }
       for (auto& [k, ns] : normals)
         if (ns.size() != 2 || Dot(ns[0], ns[1]) < 0.999f) shape.edges.push_back({v[k.first], v[k.second]});
-      for (const Face& fc : faces) FaceGrid(fc.pts, fc.n, shape.grid);
+      for (const Face& fc : faces) {
+        int first = (int)shape.grid.size();
+        FaceGrid(fc.pts, fc.n, shape.grid);
+        if ((int)shape.grid.size() > first) shape.gridFaces.push_back({first, (int)shape.grid.size()});
+      }
     }
   }
   return g_convex[brush] = std::move(shape);
@@ -1364,9 +1533,11 @@ const ConvexShape& ConvexOf(uintptr_t brush) {
 
 // Shape of a trigger / wall actor: its collision component (cylinder / brush), else its bounds. fade: the farther
 // from the camera, the fainter (walls of other rooms show through the near ones otherwise).
-// grid: the 1 m grid on the faces too (walls nearer than 25 m).
+// grid: the 1 m grid on the faces too (walls nearer than 25 m). gridNear (triggers): only the grid lines within
+// 25 m of the camera, fading out toward that distance - loading zones are whole rooms, their full grid would be
+// thousands of lines.
 bool DrawVolume(const Sink& sink, uintptr_t actor, const game::Pov& cam, float maxDist, Vec& top, bool fade,
-                bool grid) {
+                bool grid, bool gridNear) {
   uintptr_t comp = GetObj(actor, "CollisionComponent");
   if (!comp) return false;
   // PrimitiveComponent.Bounds = BoxSphereBounds { Origin, BoxExtent, SphereRadius }
@@ -1398,7 +1569,40 @@ bool DrawVolume(const Sink& sink, uintptr_t actor, const game::Pov& cam, float m
       if (grid && dist < 2500) {
         Sink gs = s;
         gs.col = WithAlpha(s.col, 0.45f);
-        for (auto& [a, b] : shape.grid) gs.L(t2.P(a), t2.P(b));
+        if (!gridNear) {
+          for (auto& [a, b] : shape.grid) gs.L(t2.P(a), t2.P(b));
+        } else {
+          WorldGrid& wg = g_worldGrid[comp];
+          if (memcmp(wg.m, m, sizeof m) != 0 || wg.lines.size() != shape.grid.size()) {
+            memcpy(wg.m, m, sizeof m);
+            wg.lines.clear();
+            wg.faces.clear();
+            for (auto& [a, b] : shape.grid) wg.lines.push_back({t2.P(a), t2.P(b)});
+            for (auto [first, last] : shape.gridFaces) {
+              WorldGrid::FaceBox fb{wg.lines[first].first, wg.lines[first].first, first, last};
+              for (int i = first; i < last; ++i)
+                for (Vec p : {wg.lines[i].first, wg.lines[i].second}) {
+                  fb.lo = {std::min(fb.lo.x, p.x), std::min(fb.lo.y, p.y), std::min(fb.lo.z, p.z)};
+                  fb.hi = {std::max(fb.hi.x, p.x), std::max(fb.hi.y, p.y), std::max(fb.hi.z, p.z)};
+                }
+              wg.faces.push_back(fb);
+            }
+          }
+          const Vec c = cam.loc;
+          for (const WorldGrid::FaceBox& fb : wg.faces) {
+            Vec q{std::clamp(c.x, fb.lo.x, fb.hi.x), std::clamp(c.y, fb.lo.y, fb.hi.y), std::clamp(c.z, fb.lo.z, fb.hi.z)};
+            if (Len(q - c) > 2500) continue;  // the whole face is far
+            for (int i = fb.first; i < fb.last; ++i) {
+              const Vec &pa = wg.lines[i].first, &pb = wg.lines[i].second;
+              Vec ab = pb - pa;  // distance from the camera to the segment
+              float l2 = Dot(ab, ab), k = l2 > 1e-3f ? std::clamp(Dot(c - pa, ab) / l2, 0.0f, 1.0f) : 0.0f;
+              float d = Len(pa + ab * k - c);
+              if (d > 2500) continue;
+              gs.col = WithAlpha(s.col, 0.45f * std::min(1.0f, 1.6f * (1.0f - d / 2500)));
+              gs.L(pa, pb);
+            }
+          }
+        }
       }
       return true;
     }
@@ -1440,11 +1644,15 @@ void ClearWorld() {
   g_charges.clear();
   g_markers.clear();
   g_triggers.clear();
+  g_streamVols.clear();
+  g_inVol.clear();
+  g_levelState.clear();
   g_walls.clear();
   g_pains.clear();
   g_trigCount.clear();
   g_fired.clear();
   g_convex.clear();
+  g_worldGrid.clear();
   g_scan = Scan{};
   g_nextScan = 0;
 }
@@ -1464,6 +1672,7 @@ uint32_t Color(Cat c) {
     case Cat::Walls: return Rgba(255, 225, 40);
     case Cat::Area: return Rgba(0, 235, 200);   // explosions & damage zones: teal
     case Cat::Hazard: return Rgba(185, 255, 60);  // level hazards: lime
+    case Cat::Loading: return Rgba(60, 100, 255);  // loading zones: royal blue (Dante's body is light sky blue)
     default: return Rgba(255, 255, 255);
   }
 }
@@ -1501,11 +1710,13 @@ void LoadJson(const nlohmann::json& j) {
   o.maxDistance = j.value("max_distance", o.maxDistance);
   o.thickness = j.value("thickness", o.thickness);
   o.occlude = j.value("occlude", o.occlude);
+  o.triggerGrid = j.value("trigger_grid", o.triggerGrid);
   SetOptions(o);
 }
 nlohmann::json SaveJson() {
   Options o = Opt();
-  return {{"labels", o.labels}, {"max_distance", o.maxDistance}, {"thickness", o.thickness}, {"occlude", o.occlude}};
+  return {{"labels", o.labels}, {"max_distance", o.maxDistance}, {"thickness", o.thickness}, {"occlude", o.occlude},
+          {"trigger_grid", o.triggerGrid}};
 }
 
 bool WantsEvents() { return g_on[(int)Cat::Hitbox] || g_on[(int)Cat::HitMarker] || g_on[(int)Cat::Area] || g_auditOn; }
@@ -1787,7 +1998,7 @@ void OnFrame(const game::World& w) {
   }
 
   // triggers and invisible walls (one scan finds both; a level that stops being visible hides them at once)
-  bool trig = g_on[(int)Cat::Cutscene] || g_on[(int)Cat::Arena] || g_on[(int)Cat::OtherTrigger];
+  bool trig = g_on[(int)Cat::Cutscene] || g_on[(int)Cat::Arena] || g_on[(int)Cat::OtherTrigger] || g_on[(int)Cat::Loading];
   bool walls = g_on[(int)Cat::Walls], hazards = g_on[(int)Cat::Hazard];
   std::unordered_set<uintptr_t> levels;
   g_shapeNow.clear();
@@ -1861,8 +2072,11 @@ void OnFrame(const game::World& w) {
     bool cinematic = GetBool(w.pc, "bCinematicMode");
     int enemyCount = -1;
     for (const Trigger& t : g_triggers) {
-      Cat c = t.kind == TKind::Arena ? Cat::Arena : t.kind == TKind::Cutscene ? Cat::Cutscene : Cat::OtherTrigger;
-      ++st.triggers[t.kind == TKind::Cutscene ? 0 : t.kind == TKind::Arena ? 1 : 2];
+      Cat c = t.kind == TKind::Arena      ? Cat::Arena
+              : t.kind == TKind::Cutscene ? Cat::Cutscene
+              : t.kind == TKind::Loading  ? Cat::Loading
+                                          : Cat::OtherTrigger;
+      ++st.triggers[t.kind == TKind::Cutscene ? 0 : t.kind == TKind::Arena ? 1 : t.kind == TKind::Loading ? 3 : 2];
       if (!game::Alive(t.ev) || !game::Alive(t.orig) || !levels.count(ue3::ObjOuter(t.orig))) continue;
       int count = GetInt(t.ev, "TriggerCount");
       auto known = g_trigCount.find(t.ev);
@@ -1881,8 +2095,63 @@ void OnFrame(const game::World& w) {
       Vec top{};
       // triggers are few and matter far away too (where the next fight starts): no distance limit
       uint32_t group = (uint32_t)t.orig;
-      if (DrawVolume(Sink{&f->lines, col, opt.occlude, group}, t.orig, f->cam, FLT_MAX, top) && opt.labels)
+      if (DrawVolume(Sink{&f->lines, col, opt.occlude, group}, t.orig, f->cam, FLT_MAX, top, false, opt.triggerGrid, true) &&
+          opt.labels)
         f->labels.push_back({top, col, used ? t.label + " (used)" : off ? t.label + " (off)" : t.label, group});
+    }
+    // LevelStreamingVolumes (loading zones without a script): faint while switched off (bDisabled)
+    Vec dl{};
+    bool danteOk = w.pawn && ActorLoc(w.pawn, dl);
+    for (const StreamVol& v : g_streamVols) {
+      if (!game::Alive(v.vol) || !levels.count(ue3::ObjOuter(v.vol))) continue;
+      ++st.triggers[3];
+      bool off = GetBool(v.vol, "bDisabled");
+      // log: Dante entering / leaving it (bounds first, then the engine's own point test)
+      bool inside = false;
+      if (danteOk) {
+        uintptr_t comp = GetObj(v.vol, "CollisionComponent");
+        struct {
+          Vec o, e;
+          float r;
+        } b{};
+        if (comp && ReadAt(comp, "Bounds", b) && std::fabs(dl.x - b.o.x) <= b.e.x && std::fabs(dl.y - b.o.y) <= b.e.y &&
+            std::fabs(dl.z - b.o.z) <= b.e.z) {
+          engine::Call cp(v.vol, "EncompassesPoint");
+          if (cp.Valid()) {
+            cp.Raw(cp.ParamName(0).c_str(), &dl, 12);
+            inside = cp.Invoke() && cp.RetData() && *reinterpret_cast<const uint32_t*>(cp.RetData()) != 0;
+          } else {
+            inside = true;
+          }
+        }
+      }
+      uint8_t& was = g_inVol[v.vol];
+      if (inside != (was != 0)) LOG("visuals: Dante %s loading zone %s (%s%s)", inside ? "entered" : "left", v.label.c_str(),
+                                    ue3::ObjName(v.vol).c_str(), off ? ", off" : "");
+      was = inside;
+      if (!g_on[(int)Cat::Loading]) continue;
+      uint32_t col = WithAlpha(Color(Cat::Loading), off ? 0.3f : 1.0f);
+      uint32_t group = (uint32_t)v.vol;
+      Vec top{};
+      if (DrawVolume(Sink{&f->lines, col, opt.occlude, group}, v.vol, f->cam, FLT_MAX, top, false, opt.triggerGrid, true) &&
+          opt.labels)
+        f->labels.push_back({top, col, off ? v.label + " (off)" : v.label, group});
+    }
+    // log: every streaming level that starts / stops being loaded or visible (to check the loading zones)
+    {
+      ue3::TArrayRaw a{};
+      if (ReadArr(w.world, "StreamingLevels", a))
+        for (int i = 0; i < a.num && i < 512; ++i) {
+          uintptr_t ls = util::ReadOr<uintptr_t>(a.data + i * 4);
+          if (!ue3::IsObject(ls)) continue;
+          uint8_t now = (GetObj(ls, "LoadedLevel") ? 1 : 0) | (GetBool(ls, "bIsVisible") ? 2 : 0);
+          auto it = g_levelState.find(ls);
+          if (it != g_levelState.end() && it->second != now)
+            LOG("visuals: level streaming: %s %s%s (Dante at %.0f %.0f %.0f)", game::GetName(ls, "PackageName").c_str(),
+                (now & 1) != (it->second & 1) ? ((now & 1) ? "loaded" : "unloaded") : "",
+                (now & 2) != (it->second & 2) ? ((now & 2) ? " shown" : " hidden") : "", dl.x, dl.y, dl.z);
+          g_levelState[ls] = now;
+        }
     }
     for (auto it = g_fired.begin(); it != g_fired.end();) {
       if (GetTickCount64() - it->at < 5000) {
@@ -1895,12 +2164,14 @@ void OnFrame(const game::World& w) {
     }
   } else if (!walls && !g_triggers.empty()) {  // the wall scan keeps the list: no rebuild every scan
     g_triggers.clear();
+    g_streamVols.clear();
   }
   if (!trig && !walls && !hazards && (g_scan.running || g_nextScan)) {
     g_scan = Scan{};
     g_nextScan = 0;
     g_walls.clear();
     g_pains.clear();
+    g_streamVols.clear();
   }
 
   QueryPerformanceCounter(&q1);
@@ -2118,10 +2389,10 @@ std::vector<std::string> DebugLines(const std::string& what) {
   Stats st = GetStats();
   char b[512];
   snprintf(b, sizeof b,
-           "lines %d labels %d (hidden behind walls %d) bodies %d strikes %d areas %d hazards %d markers %d triggers c%d a%d o%d walls %d "
+           "lines %d labels %d (hidden behind walls %d) bodies %d strikes %d areas %d hazards %d markers %d triggers c%d a%d o%d l%d walls %d "
            "collect %.2f ms draw %.2f ms hiding %s",
            st.lines, st.labels, st.labelsHidden, st.bodies, st.strikes, st.areas, st.hazards, st.markers, st.triggers[0], st.triggers[1],
-           st.triggers[2], st.walls, st.collectMs, st.drawMs, g_occLive ? "works" : "not available");
+           st.triggers[2], st.triggers[3], st.walls, st.collectMs, st.drawMs, g_occLive ? "works" : "not available");
   out.push_back(b);
   if (what == "reach") {  // what the "other" triggers lead to: script node classes, by number of triggers
     std::map<std::string, int> hist;
@@ -2166,13 +2437,31 @@ std::vector<std::string> DebugLines(const std::string& what) {
       out.push_back(b);
     }
   if (what == "triggers")
+    for (const StreamVol& v : g_streamVols) {
+      Vec loc{};
+      ActorLoc(v.vol, loc);
+      struct {
+        Vec o, e;
+        float r;
+      } bd{};
+      uintptr_t comp = GetObj(v.vol, "CollisionComponent");
+      if (comp) ReadAt(comp, "Bounds", bd);
+      auto in = g_inVol.find(v.vol);
+      snprintf(b, sizeof b, "STREAMVOL %s at (%.0f %.0f %.0f) bounds (%.0f %.0f %.0f)+-(%.0f %.0f %.0f) Dante inside %d disabled %d usage %d levels %zu | %s",
+               ue3::ObjName(v.vol).c_str(), loc.x, loc.y, loc.z, bd.o.x, bd.o.y, bd.o.z, bd.e.x, bd.e.y, bd.e.z,
+               in != g_inVol.end() ? in->second : -1, GetBool(v.vol, "bDisabled"), (int)game::GetByte(v.vol, "StreamingUsage"),
+               v.levels.size(), v.label.c_str());
+      out.push_back(b);
+    }
+  if (what == "triggers")
     for (const Trigger& t : g_triggers) {
       Vec loc{};
       ActorLoc(t.orig, loc);
-      snprintf(b, sizeof b, "%-9s %s <- %s %s at (%.0f %.0f %.0f) via %s enabled %d count %d/%d",
-               t.kind == TKind::Arena ? "ARENA" : t.kind == TKind::Cutscene ? "CUTSCENE" : "other", ue3::ObjName(t.ev).c_str(),
+      snprintf(b, sizeof b, "%-9s %s <- %s %s at (%.0f %.0f %.0f) via %s enabled %d count %d/%d %s",
+               t.kind == TKind::Arena ? "ARENA" : t.kind == TKind::Cutscene ? "CUTSCENE" : t.kind == TKind::Loading ? "LOADING" : "other",
+               ue3::ObjName(t.ev).c_str(),
                ue3::ClassNameOf(t.orig).c_str(), ue3::ObjName(t.orig).c_str(), loc.x, loc.y, loc.z, t.path.c_str(),
-               GetBool(t.ev, "bEnabled"), GetInt(t.ev, "TriggerCount"), GetInt(t.ev, "MaxTriggerCount"));
+               GetBool(t.ev, "bEnabled"), GetInt(t.ev, "TriggerCount"), GetInt(t.ev, "MaxTriggerCount"), t.loads.c_str());
       out.push_back(b);
     }
   return out;
