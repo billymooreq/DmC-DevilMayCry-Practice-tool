@@ -127,7 +127,7 @@ class ShowEnemyHp : public Feature {
     id = "enemy_show_hp";
     name = "Show enemy HP";
     group = Group::EnemyTools;
-    help = "Health above each enemy's head. Infinite enemy HP is in Cheats.";
+    help = "Health above each enemy's head.";
   }
   bool Enable(const Ctx&) override {
     enemies::SetShowHp(true);

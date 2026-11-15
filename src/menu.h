@@ -5,7 +5,7 @@
 namespace menu {
 void SetupStyle();  // after ImGui::CreateContext (fonts: ui::InitFonts)
 void Draw();        // between NewFrame and Render
-// "Cheats", "Practice", "Enemies", "Visuals", "Unlocks", "Saves", "Hotkeys", "Settings", "Dev" (any thread)
+// "Cheats", "Practice", "Enemies", "Visuals", "Runs", "Unlocks", "Saves", "Hotkeys", "Settings", "Dev" (any thread)
 void SelectTab(const std::string& name);
 // The message on the right of the status line (fades after 5 s): results of actions. Any thread.
 void Toast(const std::string& text);

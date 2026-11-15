@@ -65,7 +65,7 @@ const char* const kTabs[] = {"Cheats", "Practice", "Enemies", "Visuals", "Runs",
 
 std::atomic<bool> g_forceDetails{false};  // autorun: open Details / Edit points / Share for screenshots
 std::mutex g_mu;                          // g_tab, g_toast, g_rows
-std::string g_tab = "Cheats";
+std::string g_tab = "Cheats";  // the first tab; remembered by name for this session only
 std::string g_toast;
 ULONGLONG g_toastAt = 0;
 float g_winW = 0;      // menu window width of the last frame (its zoom)
@@ -306,6 +306,7 @@ void TabCheats() {
   FeatToggle("noclip");
   FeatNumber("noclip", 0, "Fly speed", true);
 
+  // ENEMIES (user, #24: stays here; One-hit kills / Infinite enemy HP are also in Enemies > ENEMY HEALTH)
   ui::Group("Enemies");
   FeatToggle("ohk_enemies");
   FeatToggle("enemy_inf_hp");
@@ -335,11 +336,10 @@ void TabCheats() {
   FeatNumber("player_speed", 0);
   FeatNumber("enemy_speed", 0);
 
+  // CAMERA (#24: Unlock camera + the former FREECAM group). Freecam (#20): its two modes first, sliders at the
+  // bottom. Carrying Dante is on keys (R / F, KEY BINDINGS window).
   ui::Group("Camera");
   FeatToggle("unlock_camera");
-
-  // Freecam (#20): its two modes first, sliders at the bottom. Carrying Dante is on keys (R / F, Hotkeys tab).
-  ui::Group("Freecam");
   Seen("freecam");
   Seen("freecam_triggers");
   Seen("freecam_carry_hang");  // keys of this group without rows (Hotkeys tab / KEY BINDINGS window)
@@ -597,12 +597,7 @@ void TabPractice() {
   nav::Selection sel = nav::GetSel();
   const auto& ms = nav::Missions();
 
-  // ---- cutscenes
-  ui::Group("Cutscenes");
-  FeatToggle("skip_cutscenes");
-  FeatToggle("skip_popups");
-
-  // ---- mission select
+  // ---- mission select (#24 order: Mission select · Checkpoint · Cutscenes · Dante position · More)
   ui::Group("Mission select");
   if (!ms.empty()) {
     const auto& rooms = nav::DevRooms();
@@ -768,6 +763,11 @@ void TabPractice() {
     Seen("nav_delete_mine");  // its place (the button shows in a mission, on a point of yours)
   }
 
+  // ---- cutscenes
+  ui::Group("Cutscenes");
+  FeatToggle("skip_cutscenes");
+  FeatToggle("skip_popups");
+
   // ---- Dante's positions
   ui::Group("Dante position");
   {
@@ -911,6 +911,8 @@ void TabEnemies() {
 
   ui::Group("Enemy health");
   FeatToggle("enemy_show_hp");
+  FeatToggle("ohk_enemies");   // #24: the same rows as in Cheats > ENEMIES (one feature, two places)
+  FeatToggle("enemy_inf_hp");
 
   ui::Group("Damage log");
   FeatToggle("damage_log");
@@ -976,9 +978,9 @@ void InputDisplayGroup() {
   ro.desc = "Also shows the moments when nothing is held, with how long they lasted.";
   if (ui::Toggle("idneutral", "Show neutral", o.neutral, ro)) o.neutral = !o.neutral, ch = true;
   n = {};
-  n.min = 0.5f, n.max = 2.0f, n.step = 0.1f, n.def = 1.0f, n.hardMax = 2.0f, n.unit = "\xC3\x97";
+  n.min = 0.5f, n.max = 2.0f, n.step = 0.1f, n.def = 1.3f, n.hardMax = 2.0f, n.unit = "\xC3\x97";
   ro.desc = "Size of the list.";
-  ch |= ui::Number("idsize", "Size", &o.size, n, std::fabs(o.size - 1.0f) > 1e-3f, ro);
+  ch |= ui::Number("idsize", "Size", &o.size, n, std::fabs(o.size - 1.3f) > 1e-3f, ro);
   float bg = std::round(o.bg * 100.0f);
   n = {};
   n.min = 0, n.max = 100, n.step = 10, n.def = 40, n.hardMax = 100, n.integer = true, n.unit = "%";
@@ -1036,6 +1038,8 @@ void TabVisuals() {
   FeatToggle("vis_invisible_walls");
   FeatOption("vis_invisible_walls", 0);
 
+  InputDisplayGroup();  // #24: above Options / Colours (those two are about the shapes above)
+
   ui::Group("Options");
   visuals::Options o = visuals::GetOptions();
   bool ch = false;
@@ -1076,8 +1080,6 @@ void TabVisuals() {
               {visuals::Color(Cat::Loading), "Loading zones"},
               {visuals::Color(Cat::OtherTrigger), "Other triggers"},
               {visuals::Color(Cat::Walls), "Invisible walls"}});
-
-  InputDisplayGroup();
 }
 
 // ------------------------------------------------------------------ KEY BINDINGS window (#21)
@@ -1101,16 +1103,16 @@ const std::vector<BindSection>& BindLayout() {
         {"Enemies", {"ohk_enemies", "enemy_inf_hp", "enemy_kill_all"}},
         {"Damage", {"dmg_dealt", "dmg_taken"}},
         {"Speed", {"game_speed", "player_speed", "enemy_speed"}},
-        {"Camera", {"unlock_camera"}},
-        {"Freecam", {"freecam", "freecam_triggers", "freecam_carry_hang", "freecam_carry_fall"}}}},
+        {"Camera",
+         {"unlock_camera", "freecam", "freecam_triggers", "freecam_carry_hang", "freecam_carry_fall"}}}},
       {"Practice",
-       {{"Cutscenes", {"skip_cutscenes", "skip_popups"}},
-        {"Mission select", {"nav_mission"}},
+       {{"Mission select", {"nav_mission"}},
         {"Checkpoint", {"nav_checkpoint", "nav_teleport", "nav_keep", "nav_restart", "nav_delete_mine"}},
+        {"Cutscenes", {"skip_cutscenes", "skip_popups"}},
         {"Dante position", {"nav_save_pos", "nav_load_pos"}}}},
       {"Enemies",
        {{"Spawn", {"enemy_save_pos", "enemy_spawn", "enemy_kill_all", "enemy_despawn"}},
-        {"Enemy health", {"enemy_show_hp"}},
+        {"Enemy health", {"enemy_show_hp", "ohk_enemies", "enemy_inf_hp"}},
         {"Damage log", {"damage_log", "damage_log_clear"}}}},
       {"Visuals",
        {{"Collisions", {"vis_enemy_collision", "vis_player_collision"}},
@@ -1139,6 +1141,8 @@ bool Bindable(const char* id) {
 }
 
 // The window's sections: the layout without ids that have no key, + OTHER for bindable features left out of it.
+// A feature drawn in two tabs (One-hit kills, Infinite enemy HP, Kill all enemies) gets one key row: at its
+// first place in the layout (#24).
 std::vector<BindSection> BindSections() {
   std::vector<BindSection> out;
   std::set<std::string> listed;
@@ -1147,7 +1151,7 @@ std::vector<BindSection> BindSections() {
     for (const BindGroup& g : s.groups) {
       BindGroup og{g.name, {}};
       for (const char* id : g.ids) {
-        listed.insert(id);
+        if (!listed.insert(id).second) continue;  // shown earlier already
         if (Bindable(id)) og.ids.push_back(id);
       }
       if (!og.ids.empty()) o.groups.push_back(og);

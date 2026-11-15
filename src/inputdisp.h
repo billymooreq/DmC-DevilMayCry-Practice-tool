@@ -27,7 +27,7 @@ struct Options {
   int frames = 0;       // 0 = 60 fps frames (1/60 s of game time), 1 = real frames (the game's drawn frames)
   int rows = 15;        // 5..30
   bool neutral = false; // also rows with nothing held
-  float size = 1.0f;    // 0.5..2
+  float size = 1.3f;    // 0.5..2 (default 1.3: the user's own size, #24)
   float bg = 0.4f;      // 0..1, the dark box behind the list
   float hideAfter = 0;  // seconds without input -> fades out; 0 = never
 };

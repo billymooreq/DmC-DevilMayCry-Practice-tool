@@ -17,8 +17,8 @@
 // object then). Disable() puts back everything the feature changed. With nothing on, the game is untouched.
 namespace features {
 
-// Cheats tab: Player, Enemies, Damage, Speed. Practice tab: Missions, Navigation, Positions. Enemies tab:
-// EnemyTools, DamageLog. Visuals tab: Visuals. GroupName = the short name in the Hotkeys tab.
+// Menu tabs (#24): Cheats (Player, Enemies, Damage, Speed, Camera), Practice (Missions, Navigation, Positions, Cutscenes),
+// Enemies (EnemyTools, DamageLog + One-hit kills / Infinite enemy HP again), Visuals. GroupName: unused.
 enum class Group { Player, Enemies, Damage, Speed, Visuals, Navigation, Positions, Missions, EnemyTools, DamageLog,
                    Cutscenes, Camera, Timers, Speedrun };
 const char* GroupName(Group g);

@@ -82,8 +82,6 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
 **Camera**
 - **Unlock camera** — you control the camera everywhere: no fixed camera angles, no automatic turning or lock-on
   camera.
-
-**Freecam**
 - **Freecam** — fly the camera anywhere, through walls. Dante stays where he is, and the game doesn't get your keys
   while you fly.
   - Keyboard: mouse to look, **W A S D** to move, **Space** / **Ctrl** up and down, hold **Shift** to fly faster or
@@ -100,9 +98,6 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
 
 ### Practice
 
-- **Skip cutscenes** — cutscenes end the moment they start, the same way the game's own Skip button does.
-- **Skip hints & pop-ups** — closes "new item / weapon / ability" windows and tutorial hints by itself, and starts
-  secret missions without the "press to begin" screen.
 - **Mission select** — load any mission, difficulty and checkpoint, from the main menu or from inside another
   mission.
 - **Dev room** — the developers' own test arena: flat open ground, no story. Spawn any enemy there and practice.
@@ -112,6 +107,9 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
 - **Restart mission** — start the mission again from the beginning.
 - **Create** — play to a checkpoint normally, then press Create: the checkpoint the game just saved becomes your
   own and loads exactly like Continue. **Delete my checkpoint** removes it again.
+- **Skip cutscenes** — cutscenes end the moment they start, the same way the game's own Skip button does.
+- **Skip hints & pop-ups** — closes "new item / weapon / ability" windows and tutorial hints by itself, and starts
+  secret missions without the "press to begin" screen.
 - **Dante position** — remember where Dante stands (3 slots) and put him back there.
 - **Edit checkpoints** — rename, reorder or delete checkpoints in the list.
 - **Share checkpoints** — save your list to a file or use a list from a friend.
@@ -122,6 +120,7 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
   (positions 4–6, separate from Dante's 1–3). **Save here as 4/5/6** saves where Dante stands as an enemy position.
 - **Kill all enemies** / **Despawn spawned** — clear the room, or remove only the enemies you spawned.
 - **Show enemy HP** — health number and a small bar above every enemy.
+- **One-hit kills** / **Infinite enemy HP** — the same switches as in Cheats, here too.
 - **Damage log** — a small window with every hit: the move, who it hit, the damage and the health left.
   - Show all hits, only Dante's hits, or only hits on Dante; a list of hits or a summary by move.
   - **Weak spot** — show hits on an enemy's weak spot as part of the hit or as their own line.
@@ -141,7 +140,6 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
   label says which parts of the level the zone loads. A faint zone is switched off for now.
 - **Grid (1 m)** on the triggers — a 1 m grid on the trigger areas near the camera, so their size is easy to read.
 - **Invisible walls** — the walls you can't see that stop Dante (with an optional 1 m grid).
-- **Options** — labels, max distance, line width, and hiding lines behind walls.
 - **Input display** — your inputs on screen, like in a fighting game's training mode: newest on top, with how
   many frames each was held. It shows the game's actions (Melee, Special, Shoot, Jump, Angel, Demon, Evade, Devil
   Trigger, weapon switches…), so keyboard and gamepad look the same and your button settings in the game are
@@ -153,6 +151,7 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
     (fades out after some seconds without input), **Clear**, **Reset position**. Drag it while the menu is open.
   - It only shows, it's not a cheat: no "Practice Tool Active", works in Speedrun mode. Paused game and the menu
     don't count.
+- **Options** — labels, max distance, line width, and hiding lines behind walls.
 
 ### Runs
 

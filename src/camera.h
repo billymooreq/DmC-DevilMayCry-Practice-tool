@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-// Cheats -> CAMERA "Unlock camera" (research: docs/camera.md).
+// Cheats -> CAMERA "Unlock camera" and Freecam (research: docs/camera.md).
 //
 // DmC's camera is one chase camera (DVCam_Chase_Dante) under a camera manager that picks the camera with the
 // highest priority. Levels restrict it by: chase-settings contexts (corridor, platforming, boss) on a settings

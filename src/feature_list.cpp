@@ -574,7 +574,7 @@ std::vector<Feature*> CreateVisualFeatures();  // visual_features.cpp
 
 std::vector<Feature*> CreateAll() {
   // Menu order inside each group: most used first.
-  // Menu order (Cheats tab; the Hotkeys tab sorts by group, keeping this order inside a group).
+  // Registry order (the preset editor lists features in it). The menu order is in menu.cpp (tabs, BindLayout).
   std::vector<Feature*> all = {new InfiniteHp,  new OneHitKoPlayer, new InfiniteDt,  new InfiniteGlide,
                                new Noclip,      new OneHitKills,    new DamageDealt, new DamageTaken,
                                new GameSpeed,   new PlayerSpeed,    new EnemySpeed};
