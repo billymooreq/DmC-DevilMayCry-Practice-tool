@@ -49,6 +49,8 @@ Results go to `test_result.txt`.
 | `src/camera.*` | Unlock camera, Freecam |
 | `src/timers.*`, `src/speedrun.*` | Runs tab: LiveSplit-rule timers, Speedrun mode, Start / Restart run, PB and sum of best |
 | `src/window_mode.*` | Fullscreen / Borderless / Window and the game restart |
+| `src/inputdisp.*` | Input display |
+| `src/savestate*` | Save states tab: memory snapshots, slot store (packing), the F5-F9 keys |
 | `src/ue3/` | UE3 reflection (GNames, GObjects, layouts), ProcessEvent hook and calls, Dev dumps |
 | `src/features.*`, `src/feature_list.cpp`, `src/hotkeys.*` | feature registry, Cheats features, binds and presets |
 | `src/nav*`, `src/realcp.*`, `src/cpsets.*` | Practice tab: missions, checkpoints, positions, shared lists |
@@ -60,7 +62,7 @@ Results go to `test_result.txt`.
 | `src/autorun.*` | test scripts (only run when a `DmCPT_autorun.txt` exists next to the exe) |
 | `src/config.*` | `DmCPracticeTool.json` |
 | `data/missions.json`, `data/razium.png` | built-in checkpoint catalog and a picture for the About section (embedded into the DLL) |
-| `tests/` | offline test host and save format test |
+| `tests/` | offline test host, save format test, save state store test |
 | `third_party/` | Dear ImGui 1.91.8, MinHook 1.3.4, nlohmann/json 3.11.3 (see `VERSIONS.txt`); fonts JetBrains Mono and Barlow Condensed (SIL OFL 1.1, `fonts/OFL_*.txt`) |
 
 ## Adding a game build

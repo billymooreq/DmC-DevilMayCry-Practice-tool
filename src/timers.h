@@ -49,6 +49,15 @@ struct RunInfo {
   std::string loadNote;   // where the loading flag was found (or why not)
 };
 RunInfo Run();
+bool ResultsScreen();  // game thread: the mission's results (rank) screen is open
+bool MissionStartScreen();  // game thread (#30): "MISSION N ... START MISSION" is open (after the results / from the menu)
+// #30: the game's busy int (the one LiveSplit reads): 1 = loading screen, 3 = writing the save, 0 = neither / not
+// found. Any thread (plain reads of the game's memory).
+int LoadingFlag();
+// #30 Settings "label only on loading screens": a loading screen or a screen between missions (results, its menu,
+// the next mission's start screen) is up now. Any thread; the screen part is refreshed by the game thread only
+// while that setting is on and a cheat was used.
+bool LabelMoment();
 bool Active();  // a timer of the tool is on (only then the sampler reads the game)
 
 // Runs > Best times. Personal best: the best full run (ch1_main .. the end of ch20_main), the sum of its 20

@@ -76,10 +76,13 @@ add_library(dinput8 SHARED
   src/visuals.cpp
   src/visual_features.cpp
   src/compat.cpp
+  src/savestate.cpp
+  src/savestate_store.cpp
+  src/savestate_features.cpp
   src/resources.rc
   src/dinput8.def)
 target_include_directories(dinput8 PRIVATE src ${TP}/nlohmann)
-target_link_libraries(dinput8 PRIVATE minhook imgui d3d9 bcrypt dxguid version windowscodecs ole32 shell32 winmm)
+target_link_libraries(dinput8 PRIVATE minhook imgui d3d9 bcrypt dxguid version windowscodecs ole32 shell32 winmm psapi)
 set_target_properties(dinput8 PROPERTIES OUTPUT_NAME dinput8)
 # Test build: acts as on an unknown game build (menu works, game features locked) to check that behaviour.
 option(DMCPT_SIMULATE_UNKNOWN_BUILD "Treat every game build as unknown (testing only)" OFF)
@@ -99,3 +102,7 @@ target_link_libraries(test_host PRIVATE d3d9 dxguid)
 add_executable(save_test tests/save_test.cpp src/savefile.cpp)
 target_include_directories(save_test PRIVATE src ${TP}/nlohmann)
 target_link_libraries(save_test PRIVATE bcrypt)
+
+# --- offline page store test (#29, not deployed): pack / share / restore of the save-state store ----
+add_executable(store_test tests/store_test.cpp src/savestate_store.cpp)
+target_include_directories(store_test PRIVATE src)

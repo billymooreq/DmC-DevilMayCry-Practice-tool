@@ -191,6 +191,11 @@ std::string TopPackage(uintptr_t o) {
 // ------------------------------------------------------------------ world
 const World& W() { return g_w; }
 
+void Invalidate(const char* why) {
+  ++g_w.gen;
+  LOG("game: world state replaced (%s) (gen %u)", why, g_w.gen);
+}
+
 // PlayerCamera.CameraCache = { float TimeStamp; TPOV POV { Vector Location; Rotator Rotation; float FOV } }
 namespace {
 bool g_povOverride = false;  // Freecam (camera.cpp): the view the game renders this frame

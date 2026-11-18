@@ -46,6 +46,9 @@ struct World {
   float gameDt = 0;      // world time since the previous frame (0 while paused)
 };
 const World& W();  // game thread only
+// The game's memory jumped (Dev save state loaded): bump gen, so every module drops what it kept of the world and the
+// features apply again - as after a checkpoint. Game thread.
+void Invalidate(const char* why);
 void OnFrame();    // game thread, once per rendered frame (from the ProcessEvent hook)
 
 // Why game features can (not) run now, for the menu. Any thread.

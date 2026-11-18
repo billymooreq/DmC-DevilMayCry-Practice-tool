@@ -1,4 +1,5 @@
 #include "d3d9_hook.h"
+#include "savestate.h"
 
 #include <windows.h>
 #include <d3d9.h>
@@ -779,6 +780,8 @@ void OnPresent(IDirect3DDevice9* dev, bool draw) {
     LOG("d3d9 trace: frame start");
   }
   engine::NotifyFrame();
+  savestate::OnRenderFrame();  // save states: let go of D3D9 resources the game released
+  if (dev == g_device) savestate::OnPresent(dev);  // #29: a slot's picture, before the tool draws on the frame
   if (draw) RenderFrame(dev, true);
   if (dev == g_device) {
     TakePendingScreenshot(dev);
@@ -847,6 +850,7 @@ HRESULT WINAPI hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp) {
   LOG("d3d9: Reset (%ux%u windowed=%d)", pp ? pp->BackBufferWidth : 0,
       pp ? pp->BackBufferHeight : 0, pp ? pp->Windowed : -1);
   if (ours) ImGui_ImplDX9_InvalidateDeviceObjects();
+  savestate::OnDeviceReset();  // Dev save states: their extra references on default-pool resources go first
   g_sceneDepth = nullptr;  // the game recreates its buffers
   g_curDepth = nullptr;
   g_depthFrame.clear();
@@ -919,6 +923,9 @@ bool Screenshot(const std::wstring& path, int timeoutMs) {
   return WaitForSingleObject(g_shotDone, timeoutMs) == WAIT_OBJECT_0 && g_shotOk;
 }
 
+void* g_vt[119] = {};
+void* DeviceVtableEntry(int i) { return i >= 0 && i < 119 ? g_vt[i] : nullptr; }
+
 void Install() {
   void* vt[119] = {};
   bool ok = false;
@@ -930,6 +937,7 @@ void Install() {
     LOG("d3d9: could not create dummy device, no menu");
     return;
   }
+  memcpy(g_vt, vt, sizeof vt);
   g_mode = g_cfg.renderHook == "endscene" ? Mode::EndScene
            : g_cfg.renderHook == "present"  ? Mode::Present
                                             : Mode::Vtable;
@@ -966,5 +974,9 @@ void* CreateTextureBGRA(const void* pixels, int w, int h) {
 }
 
 void RequestTrace() { g_traceReq = 1; }
+
+void ReleaseTexture(void* t) {
+  if (t) static_cast<IDirect3DTexture9*>(t)->Release();
+}
 
 }  // namespace d3d9hook

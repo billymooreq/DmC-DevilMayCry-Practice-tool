@@ -43,6 +43,10 @@ bool LoadConfig() {
       if (!b.Empty()) c.menuKey = b;
     }
     c.showDevTab = j.value("show_dev_tab", c.showDevTab);
+    c.saveStateNotices = j.value("savestate_notices", c.saveStateNotices);
+    c.labelLoadingOnly = j.value("label_loading_only", c.labelLoadingOnly);
+    c.ssAltBinds = j.value("savestate_alt_binds", false);
+    c.saveStates = j.value("savestates", j.value("dev_savestates", c.saveStates));  // #29: dev_savestates up to #28
     c.pauseInMenu = j.value("pause_in_menu", c.pauseInMenu);
     c.hideHints = j.value("hide_hints", c.hideHints);
     c.debugMenu = j.value("debug_menu", c.debugMenu);
@@ -86,6 +90,12 @@ bool LoadConfig() {
     if (j.contains("presets") && j["presets"].is_array()) c.presets = j["presets"];
     g_cfg = c;
     features::LoadJson(c.features, c.presets);
+    if (!g_cfg.ssAltBinds) {  // #30: once per config - the old default Shift+F5-F9 save keys become Alt+F5-F9
+      int moved = features::MigrateSaveStateBinds();
+      g_cfg.ssAltBinds = true;
+      LOG("config: save-state keys: %d old default Shift+F5-F9 bind(s) moved to Alt+F5-F9", moved);
+      if (moved) MarkConfigDirty();
+    }
     if (j.contains("navigation")) nav::LoadJson(j["navigation"]);
     if (j.contains("enemies")) enemies::LoadJson(j["enemies"]);
     if (j.contains("damage_log")) damagelog::LoadJson(j["damage_log"]);
@@ -112,6 +122,10 @@ bool SaveConfig() {
   j["menu_key"] = c.menuKey.vk;  // read by older versions of the tool
   j["menu_bind"] = hotkeys::ToJson(c.menuKey);
   j["show_dev_tab"] = c.showDevTab;
+  j["savestates"] = c.saveStates;
+  j["savestate_notices"] = c.saveStateNotices;
+  j["savestate_alt_binds"] = true;
+  j["label_loading_only"] = c.labelLoadingOnly;
   j["pause_in_menu"] = c.pauseInMenu;
   j["hide_hints"] = c.hideHints;
   j["debug_menu"] = c.debugMenu;

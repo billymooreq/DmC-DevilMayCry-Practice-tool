@@ -1,6 +1,7 @@
 ﻿// The tool's menu (v0.11 look: a list like a debug menu), the "Practice Tool Active" label and the enemy health
 // numbers. The widgets are in ui.cpp; rules: ui_guidelines.md.
 #include "menu.h"
+#include "savestate.h"
 
 #include "camera.h"
 
@@ -46,6 +47,7 @@
 #include "timers.h"
 #include "visuals.h"
 #include "window_mode.h"
+#include "d3d9_hook.h"
 
 namespace menu {
 namespace {
@@ -61,7 +63,9 @@ using ui::RowOpt;
 constexpr float kOverlayX = 0.148f, kOverlayY = 0.910f, kOverlayScale = 0.83f, kOverlayBasePx = 30.0f;
 constexpr float kBaseW = 560.0f, kBaseH = 600.0f;  // menu window at the default zoom, css px (x kBoost at 1080p)
 constexpr const char* kGitHub = "https://github.com/billymooreq/DmC-DevilMayCry-Practice-tool";
-const char* const kTabs[] = {"Cheats", "Practice", "Enemies", "Visuals", "Runs", "Unlocks", "Saves", "Hotkeys", "Settings", "Dev"};
+const char* const kTabs[] = {"Cheats", "Practice", "Enemies", "Visuals", "Runs", "Save states", "Unlocks", "Saves",
+                             "Hotkeys", "Settings", "Dev"};
+constexpr int kTabCount = (int)(sizeof kTabs / sizeof kTabs[0]);  // the last one (Dev) only with "Show Dev tab"
 
 std::atomic<bool> g_forceDetails{false};  // autorun: open Details / Edit points / Share for screenshots
 std::mutex g_mu;                          // g_tab, g_toast, g_rows
@@ -83,8 +87,20 @@ void Rect169(const ImVec2& d, ImVec2& origin, ImVec2& size) {
   }
 }
 
+std::atomic<int> g_labelState{0};
+std::atomic<unsigned> g_drawnFrames{0};
+
 void DrawOverlay() {
-  if (!features::OverlaySticky()) return;
+  ++g_drawnFrames;
+  if (!features::OverlaySticky()) {
+    g_labelState = 0;
+    return;
+  }
+  if (g_cfg.labelLoadingOnly && !timers::LabelMoment()) {  // #30: never in gameplay with that setting
+    g_labelState = 1;
+    return;
+  }
+  g_labelState = 2;
   ImGuiIO& io = ImGui::GetIO();
   if (io.DisplaySize.x <= 0 || io.DisplaySize.y <= 0) return;
   ImDrawList* dl = ImGui::GetForegroundDrawList();
@@ -105,6 +121,43 @@ void DrawOverlay() {
 }
 
 void Say(const std::string& s) { Toast(s); }
+
+// #29: a short message on the game screen while the menu is closed (save states: "Saved to slot 2" / why not).
+std::mutex g_noticeMu;
+std::string g_notice;
+bool g_noticeOk = true;
+ULONGLONG g_noticeAt = 0;
+
+void DrawNotice() {
+  std::string text;
+  bool ok;
+  ULONGLONG age;
+  if (!g_cfg.saveStateNotices) return;  // Save states tab: "Show messages on screen" (user, #29)
+  {
+    std::lock_guard<std::mutex> lk(g_noticeMu);
+    age = GetTickCount64() - g_noticeAt;
+    if (g_notice.empty() || age > 2600) return;
+    text = g_notice;
+    ok = g_noticeOk;
+  }
+  ImGuiIO& io = ImGui::GetIO();
+  if (io.DisplaySize.x <= 0 || io.DisplaySize.y <= 0) return;
+  float a = age > 2200 ? (2600 - age) / 400.0f : 1.0f;
+  ImVec2 o, r;
+  Rect169(io.DisplaySize, o, r);
+  float sc = r.y / 1080.0f * ui::kBoost;
+  // user (#29): small, in the very top left corner of the screen
+  float px = 11 * sc, padX = 8 * sc, padY = 4 * sc, bar = std::max(2.0f, std::round(2 * sc));
+  ImVec2 ts = ui::Measure(ui::F::MonoBold, px, text.c_str());
+  float w = ts.x + padX * 2 + bar, h = px + padY * 2;
+  ImVec2 p0(0, 0);  // flush in the screen's own corner (also on 21:9 / 16:10), clear of the portrait
+  ImDrawList* dl = ImGui::GetForegroundDrawList();
+  auto A = [&](int alpha) { return (ImU32)(std::max(0, std::min(255, (int)(alpha * a))) << 24); };
+  dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), (ui::kWindowBg & 0x00FFFFFF) | A(230));
+  dl->AddRectFilled(p0, ImVec2(p0.x + bar, p0.y + h), ((ok ? ui::kOk : ui::kErr) & 0x00FFFFFF) | A(255));
+  ui::Text(dl, ui::F::MonoBold, px, ImVec2(p0.x + bar + padX, p0.y + padY), (ui::kWhite & 0x00FFFFFF) | A(255),
+           text.c_str());
+}
 
 // ------------------------------------------------------------------ binds
 // Every bind that is used twice (features, presets, menu key) is shown in red.
@@ -1124,6 +1177,9 @@ const std::vector<BindSection>& BindLayout() {
        {{"Speedrun", {"speedrun_mode", "speedrun_start", "speedrun_reset", "timer_reset"}},
         {"Timers", {"timer_run_ls", "timer_mission_ls", "timer_mission_igt", "timer_run_rta", "timer_total_igt"}},
         {"Look", {"timer_reset_position"}}}},
+      {"Save states",  // #29: per slot, load (F5..) then save (Alt+F5.., #30)
+       {{"Slots", {"ss_load_1", "ss_save_1", "ss_load_2", "ss_save_2", "ss_load_3", "ss_save_3", "ss_load_4",
+                   "ss_save_4", "ss_load_5", "ss_save_5"}}}},
   };
   return k;
 }
@@ -1809,6 +1865,174 @@ void TabRuns() {
   LookGroup();
 }
 
+// ------------------------------------------------------------------ Save states tab (#29)
+struct ThumbTex {
+  void* tex = nullptr;
+  unsigned gen = 0;
+};
+ThumbTex g_thumbTex[savestate::kSlotCount];
+
+std::string Size(uint64_t b) {
+  char t[32];
+  if (b >= (1000ull << 20)) snprintf(t, sizeof t, "%.1f GB", b / 1073741824.0);
+  else snprintf(t, sizeof t, "%.0f MB", b / 1048576.0);
+  return t;
+}
+
+// "M02 – Home Truths" and "After checkpoint: Study Room" (the game's checkpoint at the save, named as in the
+// Practice tab's list).
+void SlotWhere(const savestate::SlotView& v, std::string* mission, std::string* place) {
+  int mi = nav::FindMission(v.map);
+  if (mi >= 0) {
+    const nav::Mission& m = nav::Missions()[mi];
+    *mission = ShortMission(m.name);
+    int pi = v.checkpoint.empty() ? -1 : nav::FindPoint(mi, v.checkpoint);
+    *place = v.checkpoint.empty() ? std::string("From the mission start")
+                                  : "After checkpoint: " + (pi >= 0 ? m.points[pi].name : nav::NiceName(v.checkpoint));
+    return;
+  }
+  int dr = nav::FindDevRoom(v.map);
+  *mission = dr >= 0 ? nav::DevRooms()[dr].name : v.map;
+  *place = v.map;
+}
+
+std::string Pct(float v, float mx) {
+  if (mx <= 0) return "?";
+  return std::to_string((int)std::lround(std::max(0.0f, std::min(1.0f, v / mx)) * 100)) + "%";
+}
+
+void TabSaveStates() {
+  const bool on = savestate::Armed(), sr = features::SpeedrunMode();
+  savestate::MemView mem = savestate::Memory();
+  // ---- status
+  if (!savestate::Available()) {
+    ui::Info("Save states can't work with this game version.", ui::kWarn);
+  } else if (on) {
+    std::string t = "On \xC2\xB7 slots use " + Size(mem.storeBytes + mem.rawBytes);
+    if (mem.oldOpenings > 0)  // each keeps the level as it was loaded then (~0.4 GB of the game's memory)
+      t += " \xC2\xB7 " + std::to_string(mem.oldOpenings) + (mem.oldOpenings == 1 ? " keeps" : " keep") +
+           " an earlier level load";
+    t += " \xC2\xB7 " + Size(mem.freeBytes) + " game memory free";
+    ui::Info(t, mem.freeBytes && mem.freeBytes < (900ull << 20) ? ui::kWarn : ui::kOk);
+  } else {
+    ui::Info("Save states are off.", ui::kText2);
+  }
+  // ---- the switch (read at the game start)
+  ui::Group("Save states");
+  {
+    RowOpt o;
+    o.desc = "Save and load any moment, like an emulator (on by default). Applies after a game restart. Slots last "
+             "until you quit the game. Off: the game runs as if the tool had no save states.";
+    if (ui::Toggle("ss_enable", "Enable save states", g_cfg.saveStates, o)) {
+      g_cfg.saveStates = !g_cfg.saveStates;
+      MarkConfigDirty();
+      LOG("menu: Enable save states %s (after a restart)", g_cfg.saveStates ? "on" : "off");
+    }
+    if (g_cfg.saveStates != on && savestate::Available())
+      ui::Info(on ? "Applies after game restart: save states turn off then." : "Applies after game restart: restart "
+                    "the game to use save states.", ui::kWarn);
+    RowOpt n;
+    n.desc = "A small message at the top left of the screen when you save or load with a key (\"Saved to slot 2\", or "
+             "why it did not work). Off: no message on the screen; the menu's status line still shows it.";
+    if (ui::Toggle("ss_notices", "Show messages on screen", g_cfg.saveStateNotices, n)) {
+      g_cfg.saveStateNotices = !g_cfg.saveStateNotices;
+      MarkConfigDirty();
+    }
+  }
+  // ---- slots
+  ui::Group("Slots");
+  std::string keyLoad[savestate::kSlotCount], keySave[savestate::kSlotCount];
+  {
+    auto lk = features::Lock();
+    const auto& all = features::All();
+    for (size_t i = 0; i < all.size() && i < features::D().binds.size(); ++i)
+      for (int k = 0; k < savestate::kSlotCount; ++k) {
+        std::string n = std::to_string(k + 1);
+        if (!strcmp(all[i]->id, ("ss_load_" + n).c_str())) keyLoad[k] = hotkeys::Text(features::D().binds[i]);
+        if (!strcmp(all[i]->id, ("ss_save_" + n).c_str())) keySave[k] = hotkeys::Text(features::D().binds[i]);
+      }
+  }
+  if (!on) {
+    for (int k = 0; k < savestate::kSlotCount; ++k) {  // the KEY BINDINGS order check needs the tab's keys
+      Seen(("ss_load_" + std::to_string(k + 1)).c_str());
+      Seen(("ss_save_" + std::to_string(k + 1)).c_str());
+    }
+    ui::Info(g_cfg.saveStates ? "The 5 slots are here after you restart the game."
+                              : "Turn on \"Enable save states\" and restart the game to get 5 slots: F5-F9 load a "
+                                "slot, Alt+F5-F9 save into it (keys: Hotkeys tab).",
+             ui::kText2);
+    return;
+  }
+  bool any = false;
+  for (int k = 0; k < savestate::kSlotCount; ++k) {
+    savestate::SlotView v = savestate::SlotInfo(k);
+    any |= v.valid;
+    ThumbTex& tt = g_thumbTex[k];
+    {
+      std::vector<uint8_t> px;
+      int w = 0, h = 0;
+      if (savestate::Thumb(k, &tt.gen, &px, &w, &h)) {
+        d3d9hook::ReleaseTexture(tt.tex);
+        tt.tex = w > 0 ? d3d9hook::CreateTextureBGRA(px.data(), w, h) : nullptr;
+      }
+    }
+    std::string n = std::to_string(k + 1), ld = "ss_load_" + n, sv = "ss_save_" + n;
+    std::string kl = keyLoad[k].empty() ? "no key" : keyLoad[k], ks = keySave[k].empty() ? "no key" : keySave[k];
+    ui::SaveSlotSpec sp;
+    sp.number = k + 1;
+    sp.keys = kl + " load \xC2\xB7 " + ks + " save";
+    sp.empty = !v.valid;
+    sp.thumb = v.valid ? (ImTextureID)(uintptr_t)tt.tex : 0;
+    sp.locked = sr;
+    sp.lockText = sr ? kSpeedrunLock : "";
+    std::string mission, place;
+    if (v.valid) {
+      SlotWhere(v, &mission, &place);
+      char t[96];
+      snprintf(t, sizeof t, "%02d:%02d \xC2\xB7 HP %s \xC2\xB7 DT %s", v.hour, v.minute, Pct(v.hp, v.hpMax).c_str(),
+               Pct(v.dt, v.dtMax).c_str());
+      sp.line1 = mission;
+      sp.line2 = place;
+      sp.line3 = t;
+      sp.desc = "Slot " + n + ": " + mission + ", " + place + ", saved at " + std::string(t, 5) + ". HP " +
+                std::to_string((int)v.hp) + " / " + std::to_string((int)v.hpMax) + ".\nLoad: " + kl + ". Save over it: " + ks +
+                ".\nSlots last until you quit the game.";
+    } else {
+      sp.note = v.dropWhy.empty() ? "" : "Emptied: " + v.dropWhy;
+      sp.desc = "Slot " + n + " is empty. Save into it: " + ks + ".";
+    }
+    Btn bl = ActionBtn(ld.c_str(), "Load", BtnKind::Normal, v.valid ? "" : "the slot is empty",
+                       ("Brings back slot " + n + " exactly as it was saved: Dante, enemies, the level.\nKeyboard: " + kl)
+                           .c_str());
+    Btn bs = ActionBtn(sv.c_str(), "Save", BtnKind::Normal, "",
+                       ("Saves this moment into slot " + n + (v.valid ? " (replaces what is in it)." : ".") +
+                        "\nKeyboard: " + ks).c_str());
+    Btn be;
+    be.label = "Empty";
+    be.desc = "Deletes slot " + n + " and frees the memory it uses.";
+    if (!v.valid) be.kind = BtnKind::Disabled, be.why = "the slot is empty";
+    sp.btns = {bs, bl, be};
+    int c = ui::SaveSlot(("slot" + n).c_str(), sp);
+    if (c == 0) RunAction(sv.c_str(), bs);
+    if (c == 1) RunAction(ld.c_str(), bl);
+    if (c == 2) {
+      if (be.kind == BtnKind::Disabled) Say("Empty: the slot is empty");
+      else savestate::Request(3, k);
+    }
+  }
+  ui::Space(4);
+  Btn ea;
+  ea.label = "Empty all";
+  ea.desc = "Deletes every slot and frees the memory they use.";
+  if (!any) ea.kind = BtnKind::Disabled, ea.why = "all slots are empty";
+  if (ui::Buttons("ssall", {ea}) == 0) {
+    if (ea.kind == BtnKind::Disabled) Say("Empty all: all slots are empty");
+    else savestate::Request(4, 0);
+  }
+  ui::Info(std::string("F5-F9 load slots 1-5, Alt+F5-F9 save into them (change the keys in the Hotkeys tab). ") +
+           (mem.packing ? "Packing a new slot..." : ""));
+}
+
 void TabHotkeys() {
   ui::Info("The only place to set keys. Press once = on, again = off. Keys do nothing while the menu is open.");
   if (features::SpeedrunMode())
@@ -1959,6 +2183,15 @@ void TabSettings() {
   }
 
   ui::Group("Other");
+  {
+    // #30: the label stays the same (place, size, look), only when it is drawn changes
+    RowOpt lo;
+    lo.desc = "\"Practice Tool Active\" is not shown while you play. It shows only on loading screens and between "
+              "missions (the results screen and the next mission's start screen) - and only if you used a cheat "
+              "since the game started, as always.";
+    if (ui::Toggle("labelload", "Show \"Practice Tool Active\" only on loading screens", g_cfg.labelLoadingOnly, lo))
+      g_cfg.labelLoadingOnly = !g_cfg.labelLoadingOnly, MarkConfigDirty();
+  }
   {
     RowOpt dm;
     dm.desc = "Optional. Lets you open the game's hidden DEBUG MENU, left in the game by its developers: Jump Menu "
@@ -2448,6 +2681,7 @@ void TabDev() {
   ImGui::TextWrapped("%s%s", busy ? "[working] " : "", dumper::LastResult().c_str());
   ImGui::TextDisabled("Output: Binaries\\Win32\\DmCPT_dumps\\");
   if (ue3::Ready() && ImGui::CollapsingHeader("Layout")) ImGui::TextUnformatted(ue3::LayoutReport().c_str());
+  savestate::DevUi();
 
   ImGui::Separator();
   ImGui::Text("ProcessEvent hook: %s   game-thread queue: %zu   Steam guard blocked: %d%s",
@@ -2603,11 +2837,18 @@ void Header(const ImVec2& wp, float W, std::string& tab) {
   // tabs
   float ty = wp.y + h + P(4), tabH = P(4) * 2 + tpx * 1.2f;
   float x = wp.x + P(4);
-  int n = g_cfg.showDevTab ? 10 : 9;
+  int n = g_cfg.showDevTab ? kTabCount : kTabCount - 1;
+  // #29: 10-11 tabs: less padding when they do not fit in one line, then a second line
+  float sp = tpx * 0.06f, pad = P(16), avail = W - P(8), sum = 0;
+  for (int i = 0; i < n; ++i) sum += ui::Measure(ui::F::Title, tpx, ui::Upper(kTabs[i]).c_str(), sp).x;
+  if (sum + pad * n > avail) pad = std::max(P(8), (avail - sum) / n);
   for (int i = 0; i < n; ++i) {
     std::string t = ui::Upper(kTabs[i]);
-    float sp = tpx * 0.06f;
-    float w = ui::Measure(ui::F::Title, tpx, t.c_str(), sp).x + P(16);
+    float w = ui::Measure(ui::F::Title, tpx, t.c_str(), sp).x + pad;
+    if (x + w > wp.x + W - P(4) + 0.5f && x > wp.x + P(4)) {  // wrap
+      x = wp.x + P(4);
+      ty += tabH;
+    }
     ImVec2 a(x, ty);
     ImGui::SetCursorScreenPos(a);
     ImGui::PushID(i);
@@ -2616,7 +2857,7 @@ void Header(const ImVec2& wp, float W, std::string& tab) {
     ImGui::PopID();
     bool on = tab == kTabs[i];
     if (on) dl->AddRectFilled(a, ImVec2(a.x + w, a.y + tabH), ui::kAccent);
-    ui::Text(dl, ui::F::Title, tpx, ImVec2(a.x + P(8), a.y + P(4)), on || hv ? ui::kWhite : ui::kTabIdle, t.c_str(), sp);
+    ui::Text(dl, ui::F::Title, tpx, ImVec2(a.x + pad * 0.5f, a.y + P(4)), on || hv ? ui::kWhite : ui::kTabIdle, t.c_str(), sp);
     if (hit && !on) {
       tab = kTabs[i];
       ui::ClearHint();
@@ -2803,6 +3044,7 @@ void Window() {
     else if (tab == "Enemies") TabEnemies();
     else if (tab == "Visuals") TabVisuals();
     else if (tab == "Runs") TabRuns();
+    else if (tab == "Save states") TabSaveStates();
     else if (tab == "Unlocks") TabUnlocks();
     else if (tab == "Saves") TabSave();
     else if (tab == "Hotkeys") TabHotkeys();
@@ -2837,6 +3079,16 @@ void Toast(const std::string& s) {
   g_toastAt = GetTickCount64();
 }
 
+int LabelState() { return g_labelState; }
+unsigned DrawnFrames() { return g_drawnFrames; }
+
+void Notice(const std::string& text, bool ok) {
+  std::lock_guard<std::mutex> lk(g_noticeMu);
+  g_notice = text;
+  g_noticeOk = ok;
+  g_noticeAt = GetTickCount64();
+}
+
 void ForceDetails(bool open) { g_forceDetails = open; }
 void OpenSavePopup(const std::string& which, int index) {
   if (which == "rename") g_popupRename = index;
@@ -2848,7 +3100,8 @@ void SelectTab(const std::string& name) {
   std::lock_guard<std::mutex> lk(g_mu);
   for (const char* t : kTabs)
     if (_stricmp(t, name.c_str()) == 0 || (_stricmp(name.c_str(), "save") == 0 && !strcmp(t, "Saves")) ||
-        (_stricmp(name.c_str(), "timers") == 0 && !strcmp(t, "Runs")))  // the tab's name up to #16
+        (_stricmp(name.c_str(), "timers") == 0 && !strcmp(t, "Runs")) ||  // the tab's name up to #16
+        (_stricmp(name.c_str(), "savestates") == 0 && !strcmp(t, "Save states")))  // autorun: one word
       g_tab = t;
 }
 
@@ -2898,6 +3151,7 @@ void Draw() {
   timers::Draw(state::menuOpen);
   inputdisp::Draw(state::menuOpen);
   if (state::menuOpen) Window();
+  else DrawNotice();  // #29 (with the menu open the status line shows the same text)
   if (state::menuOpen && g_cfg.bindsOpen) BindsWindow();  // closes with the menu, opens again with it
   if (g_checkLayout.exchange(false)) CheckBindLayout();
   ImGui::PopFont();

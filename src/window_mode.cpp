@@ -12,6 +12,7 @@
 #include "config.h"
 #include "hooks.h"
 #include "log.h"
+#include "savestate.h"
 
 namespace winmode {
 namespace {
@@ -100,7 +101,10 @@ HRESULT WINAPI hkCreateDevice(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HW
     g_active = true;
     PlaceWindow(w, pp->BackBufferWidth, pp->BackBufferHeight);
   }
-  return oCreateDevice(d3d, adapter, type, focus, flags, pp, dev);
+  HRESULT hr = oCreateDevice(d3d, adapter, type, focus, flags, pp, dev);
+  // Dev save states (config dev_savestates): every D3D9 resource of the game is tracked from the first one
+  if (SUCCEEDED(hr) && dev && *dev && w && !IsOurDummy(w)) savestate::OnGameDevice(*dev);
+  return hr;
 }
 
 IDirect3D9* WINAPI hkCreate9(UINT sdk) {
@@ -225,8 +229,13 @@ int ModeFromKey(const char* s) {
 
 void InstallEarly() {
   g_mode = ReadMode();
-  if (g_mode == kFullscreen) return;  // the game is not touched at all
+  bool early = savestate::WantEarly();  // Dev save states need the device's creation, in any window mode
+  if (g_mode == kFullscreen && !early) return;  // the game is not touched at all
   oCreate9 = (Direct3DCreate9_t)PatchImport("d3d9.dll", "Direct3DCreate9", (void*)&hkCreate9);
+  if (g_mode == kFullscreen) {
+    g_early = std::string("dev save states: import Direct3DCreate9 ") + (oCreate9 ? "ok" : "MISSING");
+    return;
+  }
   oChangeDisplay = (ChangeDisplaySettingsW_t)PatchImport("user32.dll", "ChangeDisplaySettingsW", (void*)&hkChangeDisplay);
   oSetWindowPos = (SetWindowPos_t)PatchImport("user32.dll", "SetWindowPos", (void*)&hkSetWindowPos);
   oSetWindowLong = (SetWindowLongW_t)PatchImport("user32.dll", "SetWindowLongW", (void*)&hkSetWindowLong);

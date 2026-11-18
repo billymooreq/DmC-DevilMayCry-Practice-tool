@@ -100,6 +100,16 @@ health right after the call returns.
   autosplitter's start / split / reset rules. The loading flag is found through the signature of the game function
   that reads it, so it works on v1.3 and v1.0. The run ends at Vergil's death (`DVPawn_Vergil.SetDead` in
   Mission 20).
+- Save states (`src/savestate*.cpp`): a slot is a copy of the game's own memory (the exe's writable data and
+  allocations, the CRT and physics heaps), taken at the start of `FEngineLoop::Tick` while every game thread is
+  stopped at its usual wait. Everything a slot points to is kept alive while the slot exists: freed address ranges
+  stay reserved (VirtualFree and the heaps' own NtFreeVirtualMemory), D3D9 resources keep a reference, game files,
+  Bink videos, kernel objects and the game's ended threads (parked) stay open. A load writes back only the pages
+  that changed (hash per page, 9 threads), puts the threads back into their waits and restarts the rendering thread
+  if the game replaced it. Slots are packed in the background (zero pages dropped, pages shared between slots,
+  XPRESS per page). Hooks are installed in `DllMain` only when save states are enabled.
+- The "Practice Tool Active" label can be limited to loading screens: the loading flag above (1 = loading screen)
+  or the game's in-game UI showing `DVGFxContainer_MissionRankScreen` / `DVGFxContainer_MissionStartScreen`.
 - Window mode (`src/window_mode.cpp`): in `DllMain`, before the game creates its window, a few imports of the exe are
   redirected (`Direct3DCreate9`, `ChangeDisplaySettingsW`, `SetWindowPos`, `SetWindowLongW`, `ShowWindow`) so the
   device is created windowed. Picking a mode restarts the game through a hidden helper process.

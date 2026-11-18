@@ -20,7 +20,7 @@ namespace features {
 // Menu tabs (#24): Cheats (Player, Enemies, Damage, Speed, Camera), Practice (Missions, Navigation, Positions, Cutscenes),
 // Enemies (EnemyTools, DamageLog + One-hit kills / Infinite enemy HP again), Visuals. GroupName: unused.
 enum class Group { Player, Enemies, Damage, Speed, Visuals, Navigation, Positions, Missions, EnemyTools, DamageLog,
-                   Cutscenes, Camera, Timers, Speedrun };
+                   Cutscenes, Camera, Timers, Speedrun, SaveStates };
 const char* GroupName(Group g);
 
 // Parameters are floats everywhere (json, presets); the kind only changes the widget:
@@ -77,6 +77,9 @@ class Feature {
   virtual void Run(const Ctx&) {}  // action features
   // Action features: why the button is greyed out now ("" = available). Any thread, cheap.
   virtual std::string Blocked() const { return ""; }
+  // #29: false = its key does nothing now and is left to the game (no "Practice Tool Active" either): save state
+  // keys while save states are off. Render thread, cheap.
+  virtual bool KeyActive() const { return true; }
 };
 
 void Init();  // registers the features, sets the frame/event callbacks (init thread, once)
@@ -138,6 +141,11 @@ bool SpeedrunMode();
 std::vector<std::string> GoLegit();
 void LeaveSpeedrun();  // back to normal; nothing turns on by itself
 
+// Settings > "Pause the game while the menu is open" (#29, save states): the pause is the tool's now (the game is
+// not paused by itself); after a save state load the slot's memory may hold that pause - taken off (game thread).
+bool MenuPauseOn();
+void AfterStateLoad();
+
 // Game status line for the menu (any thread).
 game::Status Status();
 
@@ -145,6 +153,9 @@ game::Status Status();
 // begins with everything off.
 void LoadJson(const nlohmann::json& features, const nlohmann::json& presets);
 void SaveJson(nlohmann::json& features, nlohmann::json& presets);
+// #30: "Save to slot N" was Shift+F5..F9 by default before 2.0.0, now Alt+F5..F9. Moves binds that are still the old
+// default (key F5+N with Shift only); anything the player set himself stays. Returns how many were moved.
+int MigrateSaveStateBinds();
 
 // Dev/autorun: log every hit (attacker, victim, damage before/after our multipliers).
 void SetHitLog(bool on);

@@ -174,7 +174,8 @@ void Poll(bool gameForeground) {
       features::Data& d = features::D();
       const auto& all = features::All();
       for (size_t i = 0; i < all.size() && i < d.binds.size(); ++i)
-        if (!all[i]->noBind && edge(std::string("f:") + all[i]->id, d.binds[i])) toggle.push_back(all[i]->id);
+        if (!all[i]->noBind && edge(std::string("f:") + all[i]->id, d.binds[i]) && all[i]->KeyActive())
+          toggle.push_back(all[i]->id);
       for (size_t i = 0; i < d.presets.size(); ++i)
         if (edge("p:" + d.presets[i].name, d.presets[i].bind)) presets.push_back((int)i);
     }

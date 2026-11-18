@@ -118,7 +118,12 @@ class SkipPopups : public features::Feature {
         }
       }
     }
-    // 2) Tutorial hints of the level script: their own Hide().
+    // 2) Tutorial hints of the level script: their own Hide(). (Another world / a loaded save state: forget them.)
+    static unsigned gen = 0;
+    if (c.w.gen != gen) {
+      gen = c.w.gen;
+      g_tutorials.clear();
+    }
     for (size_t i = 0; i < g_tutorials.size();) {
       uintptr_t t = g_tutorials[i];
       if (!game::Alive(t)) {

@@ -1,13 +1,12 @@
 # DmC Practice Tool
 
-A practice and training tool for **DmC: Devil May Cry** (PC): cheats, mission and checkpoint select, enemy
-spawner, damage log, hitbox and trigger view, an input display, a free camera, speedrun timers and one-click unlocks — all in an
-in-game menu.
+A practice and training tool for **DmC: Devil May Cry** (PC): cheats, mission and checkpoint select, save states,
+enemy spawner, damage log, hitbox and trigger view, an input display, a free camera, speedrun timers and one-click
+unlocks — all in an in-game menu.
 
 ![Game version](https://img.shields.io/badge/game-v1.3%20%28current%20Steam%29-brightgreen)
 ![v1.0](https://img.shields.io/badge/game-v1.0%20%282013%29-brightgreen)
 ![nonsteam](https://img.shields.io/badge/game-v1.3%20nonsteam-brightgreen)
-![Status](https://img.shields.io/badge/status-beta-blue)
 
 <p align="center">
   <img src="docs/images/screenshot_practice.jpg" alt="The Practice tab of the menu" width="100%">
@@ -152,6 +151,7 @@ the **Key bindings** window (**Hotkeys** tab). Cheats, Practice, Enemies and Vis
   - It only shows, it's not a cheat: no "Practice Tool Active", works in Speedrun mode. Paused game and the menu
     don't count.
 - **Options** — labels, max distance, line width, and hiding lines behind walls.
+- **Colours** — pick the colour of each kind of shape.
 
 ### Runs
 
@@ -179,6 +179,32 @@ autosplitter): loading screens don't count.
 - **Sum of best** — your best time of every mission added up.
 - Both are kept between game starts, and you can edit the time of each mission by hand.
 
+**Look** — a dark background behind the timers, and **Reset position** to put them back above the health bar.
+
+### Save states
+
+Save the exact moment and go back to it as often as you like — like save states in an emulator.
+
+- **5 slots.** **F5–F9** load slot 1–5, **Alt+F5–F9** save into it (you can change the keys in the Key bindings
+  window). Each slot also has **Save**, **Load** and **Empty** buttons and shows a small picture of the moment, the
+  mission, the last checkpoint, the time and Dante's health.
+- Loading brings everything back: Dante, the enemies, the level and the camera, exactly as they were. It takes a
+  split second.
+- A slot still loads after **Restart mission**, **Load checkpoint**, after dying, and after you go to another
+  mission and come back. It loads only in the mission it was saved in.
+- Slots live in memory **until you quit the game**. They are not saved to disk.
+- **Enable save states** — on from the start. Turn it off if you don't need them (works after a game restart).
+- **Show messages on screen** — a small "Saved to slot 2" / "Loaded slot 2" in the top left corner.
+- You can't save or load on loading screens, in the main menu, while the game is paused, on the results screen and
+  on the mission start screen; you can't save during cutscenes and videos. The message tells you why.
+- **Memory:** the game can only use about 4 GB. Slots take around 150–250 MB together, but a slot saved before a
+  Restart or Load checkpoint also keeps that older level in memory (about 400 MB). When it gets tight, saving says
+  "Not enough game memory - empty a slot". **Empty all** frees everything. The line at the top of the tab shows how
+  much memory the slots use.
+- In **Fullscreen**, Alt+Tab empties the slots (the game rebuilds its graphics then). Use **Borderless** if you
+  Alt+Tab a lot.
+- Save states count as cheats ("Practice Tool Active", no achievements) and are off in Speedrun mode.
+
 ### Unlocks
 
 - **Unlock All** — the whole game at 100%: all missions on all difficulties, secret missions, Mundus Keys, Lost
@@ -196,7 +222,7 @@ Works in the main menu after you pick your save slot. A backup of your save is m
 ### Hotkeys
 
 - **Open key bindings window** — one window with the keys of every feature from all tabs (Cheats, Practice,
-  Enemies, Visuals, Runs), in the same groups and order as in the tabs.
+  Enemies, Visuals, Runs, Save states), in the same groups and order as in the tabs.
   - Click a key box, then press a key (with Ctrl / Shift / Alt if you like) or a gamepad button combination.
     **Esc** cancels, **×** next to a key clears it. If a key is already used by another feature, it turns red.
   - Move the window by its title bar and drag its edges to make it bigger: it shows more columns when it is wide.
@@ -211,6 +237,8 @@ Works in the main menu after you pick your save slot. A backup of your save is m
 - **Game window** — **Fullscreen**, **Borderless** (a full-screen window: Alt+Tab is instant, LiveSplit or OBS can
   stay on top) or **Window** (move it and drag its edges). Picking one restarts the game at once by itself (a few
   seconds; progress since the last checkpoint is lost).
+- **Show "Practice Tool Active" only on loading screens** — the label is not shown while you play. You see it on
+  loading screens and between missions (the results screen and the next mission's start screen). Off by default.
 - **Unlock the game's debug menu** — hold Angel + Demon and press Pause to open the developers' own debug menu.
 - **Save config / Load config**, **Compatibility report** (see FAQ), **About**.
 
@@ -244,7 +272,9 @@ The built-in list (**Default checkpoints**) is always there if you want to go ba
 
 - **"Practice Tool Active"** appears on screen after you use the first cheat and stays until you restart the
   game (or turn on **Speedrun mode**). This is on purpose, so runs and streams with the tool are easy to tell apart.
-  Timers, the Input display, Unlocks, Saves and the menu itself don't show it.
+  Timers, the Input display, Unlocks, Saves and the menu itself don't show it. If it gets in the way while you play,
+  **Settings** → **Show "Practice Tool Active" only on loading screens** keeps it to loading screens and the screens
+  between missions.
 - **Steam achievements are blocked** after you use any cheat, until you restart the game.
 - **Unlock** and **Import** make a backup of your save first, in `Binaries\Win32\DmCPT_backups\` (one folder per
   backup, named with the date and time).

@@ -161,6 +161,26 @@ void PauseForMenu(const game::World& w, const game::Status& st) {
   LOG("features: menu pause on");
 }
 
+}  // namespace
+
+bool MenuPauseOn() { return g_pause.ours && g_pause.world == game::W().world; }
+
+void AfterStateLoad() {
+  // Saves are refused while the game pauses itself, so a pause in the loaded memory is the tool's menu pause: off;
+  // PauseForMenu sets it again next frame if the menu is open.
+  const game::World& w = game::W();
+  if (w.world) {
+    game::Field f = game::FieldOf(w.world, "Pauser");
+    if (f.ok() && *reinterpret_cast<uintptr_t*>(w.world + f.off)) {
+      *reinterpret_cast<uintptr_t*>(w.world + f.off) = 0;
+      LOG("features: menu pause of the loaded save state taken off");
+    }
+  }
+  g_pause = {};
+}
+
+namespace {
+
 // ------------------------------------------------------------------ frame (game thread)
 void OnFrame() {
   game::OnFrame();
@@ -261,6 +281,7 @@ const char* GroupName(Group g) {
     case Group::Camera: return "Camera";
     case Group::Timers: return "Runs";
     case Group::Speedrun: return "Speedrun";
+    case Group::SaveStates: return "Save states";
   }
   return "?";
 }
@@ -520,6 +541,21 @@ void LoadJson(const nlohmann::json& feats, const nlohmann::json& presets) {
         }
       g_data.presets.push_back(p);
     }
+}
+
+int MigrateSaveStateBinds() {
+  std::lock_guard<std::recursive_mutex> lk(g_mu);
+  int moved = 0;
+  for (size_t i = 0; i < g_all.size(); ++i) {
+    const std::string id = g_all[i]->id;
+    if (id.size() != 9 || id.compare(0, 8, "ss_save_") != 0) continue;
+    int n = id[8] - '1';
+    hotkeys::Bind& b = g_data.binds[i];
+    if (n < 0 || n > 4 || b.vk != VK_F5 + n || b.mods != hotkeys::kShift) continue;
+    b.mods = hotkeys::kAlt;  // a gamepad combination on the same bind stays as it is
+    ++moved;
+  }
+  return moved;
 }
 
 void SaveJson(nlohmann::json& feats, nlohmann::json& presets) {

@@ -505,6 +505,83 @@ float g_bg = 0;             // background darkness 0..1 (Timers > Look)
 
 }  // namespace
 
+bool ResultsScreen() { return ResultsOpen(); }  // #29: save states refuse there
+
+bool MissionStartScreen() {
+  uintptr_t ui = g_ingameUI.Get();
+  if (!ui) return false;
+  game::Field f = game::FieldOf(ui, "m_LoadedComponents");
+  ue3::TArrayRaw a{};
+  if (!f.ok() || !util::Read(ui + f.off, a) || a.num <= 0 || a.num > 64) return false;
+  for (int i = 0; i < a.num; ++i) {
+    uintptr_t c = util::ReadOr<uintptr_t>(a.data + i * 4);
+    if (ue3::IsObject(c) && ue3::ClassNameOf(c) == "DVGFxContainer_MissionStartScreen") return true;
+  }
+  return false;
+}
+
+std::atomic<uintptr_t> g_flagGlobal{0};
+std::atomic<int> g_flagOff{-1};
+std::atomic<bool> g_flagTried{false};
+std::atomic<bool> g_resultsNow{false};
+
+int LoadingFlag() {
+  if (!g_flagGlobal) {
+    if (g_flagTried.exchange(true) || !ue3::Ready()) {
+      if (!ue3::Ready()) g_flagTried = false;  // try again once UE3 is found
+      return 0;
+    }
+    uintptr_t hit = ue3::SigScan(kSigLoading);
+    if (!hit) {
+      LOG("timers: loading flag: code not found (label on loading screens cannot tell them)");
+      return 0;
+    }
+    g_flagOff = (int)util::ReadOr<uint32_t>(hit + 36);
+    g_flagGlobal = util::ReadOr<uintptr_t>(hit + 1);
+  }
+  uintptr_t g = util::ReadOr<uintptr_t>(g_flagGlobal);
+  if (!g) return 0;
+  int v = util::ReadOr<int>(g + g_flagOff);
+  return v != 0 && !(util::ReadOr<uint8_t>(g + 0x24) & 0x80) ? v : 0;  // as the game's own function reads it
+}
+
+bool LabelMoment() { return LoadingFlag() == 1 || g_resultsNow; }
+
+// Game thread, every frame: the "screen between missions" part of LabelMoment. Only while it can matter (the setting is on and the
+// label is up) - finding the game's UI object costs an object scan when it is not there.
+void LabelFrame(const game::World& w) {
+  static std::string lastUi;
+  if (!g_cfg.labelLoadingOnly || !features::OverlaySticky() || w.frontEnd || !w.gameInfo) {
+    g_resultsNow = false;
+    return;
+  }
+  // The game's in-game UI keeps the screens it shows in m_LoadedComponents (the object lives across maps; a screen
+  // leaves the list when the game moves on). Mission end: MissionRankScreen = the red background while the next map
+  // loads, MISSION COMPLETE and its menu (Next mission / Restart / Main menu); then MissionStartScreen = "MISSION 6
+  // ... START MISSION" before the next mission's loading screen (v1.3, #30).
+  uintptr_t ui = g_ingameUI.Get();
+  std::string list;
+  bool r = false;
+  if (ui) {
+    game::Field f = game::FieldOf(ui, "m_LoadedComponents");
+    ue3::TArrayRaw a{};
+    if (f.ok() && util::Read(ui + f.off, a) && a.num > 0 && a.num <= 64)
+      for (int i = 0; i < a.num; ++i) {
+        uintptr_t c = util::ReadOr<uintptr_t>(a.data + i * 4);
+        if (!ue3::IsObject(c)) continue;
+        std::string cls = ue3::ClassNameOf(c);
+        if (cls == "DVGFxContainer_MissionRankScreen" || cls == "DVGFxContainer_MissionStartScreen") r = true;
+        list += (list.empty() ? "" : ",") + cls;
+      }
+  }
+  if (r != g_resultsNow) LOG("timers: label: mission end / start screen %s (map %s)", r ? "open" : "closed", w.map.c_str());
+  g_resultsNow = r;
+  if (list != lastUi) {
+    lastUi = list;
+    LOG("timers: label: in-game UI now [%s] loading=%d", list.c_str(), LoadingFlag());
+  }
+}
+
 std::string Format(double ms, bool withMs) {
   if (ms < 0) return "--:--";
   long long t = (long long)std::floor(ms + 0.0001);
@@ -545,6 +622,7 @@ void Start() {
 }
 
 void OnFrame(const game::World& w) {
+  LabelFrame(w);
   if (!g_any) return;
   // the game's mission time
   if (w.gameInfo && ue3::IsA(w.gameInfo, "DVGameInfo")) {

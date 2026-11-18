@@ -18,6 +18,7 @@
 #include "popups.h"
 #include "speedrun.h"
 #include "inputdisp.h"
+#include "savestate.h"
 #include "timers.h"
 #include "d3d9_hook.h"
 #include "features.h"
@@ -815,6 +816,38 @@ void Exec(const std::vector<std::string>& cmds) {
       bool ok = false;
       for (int i = 0; i < maxS * 4 && !(ok = features::Status().mission); ++i) Sleep(250);
       LOG("autorun: wait_mission -> %s (%s)", ok ? "in mission" : "TIMEOUT", features::Status().map.c_str());
+    } else if (cmd == "labelwatch") {  // labelwatch <s> <prefix>: #30 - a screenshot each time the label shows / hides
+      std::vector<std::string> a = Words(arg);
+      double secs = a.empty() ? 30 : atof(a[0].c_str());
+      std::string pre = a.size() > 1 ? a[1] : "lw";
+      std::wstring dir = util::InExeDir(L"DmCPT_dumps\\");
+      CreateDirectoryW(dir.c_str(), nullptr);
+      ULONGLONG t0 = GetTickCount64();
+      int last = -1, lastFlag = -1, n = 0;
+      unsigned lastFrames = menu::DrawnFrames();
+      ULONGLONG lastFrameAt = t0;
+      bool stalled = false;
+      while (GetTickCount64() - t0 < secs * 1000) {
+        int s = menu::LabelState(), flag = timers::LoadingFlag();
+        unsigned fr = menu::DrawnFrames();
+        if (fr != lastFrames) lastFrames = fr, lastFrameAt = GetTickCount64(), stalled = false;
+        if (!stalled && GetTickCount64() - lastFrameAt > 500) {
+          stalled = true;
+          LOG("autorun: labelwatch +%.2f s: no frames drawn for 0.5 s (loading=%d)", (GetTickCount64() - t0) / 1000.0, flag);
+        }
+        if (s != last || flag != lastFlag) {
+          const char* sn = s == 2 ? "drawn" : s == 1 ? "hidden" : "none";
+          char nm[96];
+          snprintf(nm, sizeof nm, "%s_%02d_%s_load%d", pre.c_str(), n++, sn, flag);
+          bool ok = d3d9hook::Screenshot(dir + util::Utf8ToWide(nm) + L".bmp", 1500);
+          LOG("autorun: labelwatch +%.2f s: label %s, loading flag %d, results %d, map %s - shot %s %s",
+              (GetTickCount64() - t0) / 1000.0, sn, flag, timers::LabelMoment() && flag != 1, nav::Now().map.c_str(), nm,
+              ok ? "ok" : "FAILED");
+          last = s, lastFlag = flag;
+        }
+        Sleep(30);
+      }
+      LOG("autorun: labelwatch done (%d changes)", n);
     } else if (cmd == "overlay_force") {  // tests only: show the label without a cheat
       features::ForceOverlay();
     } else if (cmd == "ui_win") {  // ui_win x y w h: menu window as fractions of the screen
@@ -833,7 +866,7 @@ void Exec(const std::vector<std::string>& cmds) {
       else menu::PlaceBindsWindow(0, 0, 0, 0);
     } else if (cmd == "bindlayout") {  // bindlayout: KEY BINDINGS order against the rows of the tabs (draw them first)
       menu::CheckBindsLayout();
-    } else if (cmd == "ui_set") {  // ui_set pause|hints|hidelog|dev|unknown 0|1: menu settings for tests
+    } else if (cmd == "ui_set") {  // ui_set pause|hints|hidelog|dev|unknown|labelload 0|1: menu settings for tests
       std::vector<std::string> a = Words(arg);
       if (a.size() >= 2) {
         bool on = atoi(a[1].c_str()) != 0;
@@ -843,6 +876,7 @@ void Exec(const std::vector<std::string>& cmds) {
         else if (a[0] == "dev") g_cfg.showDevTab = on;
         else if (a[0] == "debugmenu") devtools::SetDebugMenu(on);
         else if (a[0] == "unknown") SetPretendUnknown(on);
+        else if (a[0] == "labelload") g_cfg.labelLoadingOnly = on;  // #30: label only on loading screens
         LOG("autorun: ui_set %s %d", a[0].c_str(), on);
       }
     } else if (cmd == "dmglog_test") {  // dmglog_test: adds sample rows (marked "TEST") to check how the log looks
@@ -1088,6 +1122,15 @@ void Exec(const std::vector<std::string>& cmds) {
       int maxS = arg.empty() ? 90 : atoi(arg.c_str());
       for (int i = 0; i < maxS * 4 && nav::Now().busy; ++i) Sleep(250);
       LOG("autorun: nav busy=%d map %s", nav::Now().busy, nav::Now().map.c_str());
+    } else if (cmd == "ss") {  // #25 savestates: ss probe [stacks] | ss stack game|<tid>
+      std::vector<std::string> a = Words(arg);
+      std::vector<std::string> lines;
+      if (!a.empty() && a[0] == "probe") lines = savestate::Probe(a.size() > 1 && a[1] == "stacks");
+      else if (a.size() > 1 && a[0] == "stack" && a[1] == "game")
+        lines = engine::OnGame<std::vector<std::string>>([] { return savestate::StackScan(GetCurrentThreadId(), 60); });
+      else if (a.size() > 1 && a[0] == "stack") lines = savestate::StackScan(strtoul(a[1].c_str(), nullptr, 10), 60);
+      else lines = savestate::Command(a);
+      for (const std::string& l : lines) LOG("autorun: ss %s", l.c_str());
     } else if (cmd == "exit") {
       LOG("autorun: closing the game");
       EnumWindows(CloseGameWindow, 0);

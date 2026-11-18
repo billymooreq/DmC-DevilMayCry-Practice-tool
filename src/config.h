@@ -10,6 +10,17 @@
 struct Config {
   hotkeys::Bind menuKey{0x2D, 0, 0};  // open / close the menu: any key (+ modifiers) or gamepad combination
   bool showDevTab = false;
+  // Save states tab "Enable save states" (#29; up to #28 Dev "dev_savestates", read as the same switch). Read at
+  // the game start (savestate::WantEarly, DllMain): a change applies after a restart of the game. On by default
+  // (user, #29); the switch is there to turn them off if they ever get in the way.
+  bool saveStates = true;
+  bool saveStateNotices = true;  // #29 (user): save / load messages on the game screen (menu::Notice)
+  // #30 Settings > Other: "Practice Tool Active" only on loading screens and the screens between missions (never
+  // in gameplay). Same place, size and look; shown only when it would be shown anyway (a cheat this session).
+  bool labelLoadingOnly = false;
+  // #30: save-state keys moved from Shift+F5-F9 to Alt+F5-F9; a config without this flag gets its old default
+  // Shift binds moved once (features::MigrateSaveStateBinds). Binds the player set to something else stay.
+  bool ssAltBinds = false;
   bool pauseInMenu = true;  // the game stands still while the menu is open (in a mission)
   bool hideHints = false;   // "Disable hints": no description box at the bottom of the menu
   bool debugMenu = false;   // "Unlock the game's debug menu": Pause + Angel + Demon opens it (devtools.cpp)

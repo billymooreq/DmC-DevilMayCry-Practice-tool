@@ -925,6 +925,98 @@ bool Picture(const char* id, ImTextureID tex, float iw, float ih, const char* ca
   return hit;
 }
 
+// #29: a save state slot - its picture (160 x 90), number + keys, mission, place, time / HP / DT, and Save / Load /
+// Empty stacked at the right end. The row itself does nothing on a click (only its buttons do).
+int SaveSlot(const char* id, const SaveSlotSpec& s) {
+  ImGui::PushID(id);
+  constexpr float kRowCss = 102, kThumbW = 160, kThumbH = 90;
+  Row r = BeginRow("row", kRowCss, true);
+  ImDrawList* dl = DL();
+  float padL = P(18), padR = P(10), top = P(6);
+  // buttons: stacked at the right end, one width
+  float bpx = P(12), bh = P(20), gap = P(4);
+  float bw = 0;
+  for (const Btn& b : s.btns) bw = std::max(bw, Measure(F::Mono, bpx, b.label.c_str()).x + P(20));
+  float bx = r.p.x + r.w - padR - bw;
+  float by = r.p.y + (r.h - (bh * s.btns.size() + gap * (s.btns.size() ? s.btns.size() - 1 : 0))) * 0.5f;
+  int res = -1;
+  bool anyBtnHov = false;
+  std::vector<bool> hov(s.btns.size());
+  for (size_t i = 0; i < s.btns.size(); ++i) {
+    ImGui::SetCursorScreenPos(ImVec2(bx, by + i * (bh + gap)));
+    ImGui::PushID((int)i);
+    if (ImGui::InvisibleButton("##b", ImVec2(std::max(1.0f, bw), bh))) res = (int)i;
+    hov[i] = ImGui::IsItemHovered();
+    ImGui::PopID();
+    anyBtnHov |= hov[i];
+  }
+  if (r.hov || anyBtnHov) dl->AddRectFilled(r.p, ImVec2(r.p.x + r.w, r.p.y + r.h), IM_COL32(0x1F, 0x1F, 0x1F, 255));
+  // picture
+  ImVec2 ta(r.p.x + padL, r.p.y + top), tb(ta.x + P(kThumbW), ta.y + P(kThumbH));
+  float line = std::max(1.0f, std::round(P(1)));
+  if (s.thumb) {
+    dl->AddImage(s.thumb, ta, tb, ImVec2(0, 0), ImVec2(1, 1), s.locked ? IM_COL32(110, 110, 110, 255) : kWhite);
+  } else {
+    dl->AddRectFilled(ta, tb, kFieldBg);
+    const char* t = s.empty ? "Empty slot" : "No picture";
+    float px = P(12);
+    ImVec2 ts = Measure(F::Mono, px, t);
+    Text(dl, F::Mono, px, ImVec2(ta.x + (P(kThumbW) - ts.x) * 0.5f, ta.y + (P(kThumbH) - px) * 0.5f), kOff, t);
+  }
+  dl->AddRect(ta, tb, kFieldBorder, 0, 0, line);
+  // text
+  float tx = tb.x + P(12), tw = bx - P(10) - tx;
+  float px = P(13), sp = P(12);
+  float y = ta.y + P(1);
+  ImU32 main = s.locked ? kLocked : kText, soft = s.locked ? kLocked : kSoft, dim = s.locked ? kLocked : kText2;
+  {
+    std::string head = "SLOT " + std::to_string(s.number);
+    Text(dl, F::MonoBold, px, ImVec2(tx, y), s.locked ? kLocked : kWhite, head.c_str());
+    float hx = tx + Measure(F::MonoBold, px, head.c_str()).x + P(10);
+    std::string keys = s.keys;
+    if (s.locked && !s.lockText.empty()) {
+      float lw = Measure(F::Mono, sp, s.lockText.c_str()).x;
+      Text(dl, F::Mono, sp, ImVec2(tx + tw - lw, y + (px - sp) * 0.5f), kErr, s.lockText.c_str());
+      tw -= lw + P(8);
+    }
+    Text(dl, F::Mono, sp, ImVec2(hx, y + (px - sp) * 0.5f), dim, Ellipsize(F::Mono, sp, keys, tx + tw - hx).c_str());
+  }
+  y += px * 1.55f;
+  if (s.empty) {
+    Text(dl, F::Mono, px, ImVec2(tx, y), kOff, "Empty slot");
+    if (!s.note.empty()) Text(dl, F::Mono, sp, ImVec2(tx, y + px * 1.55f), dim, Ellipsize(F::Mono, sp, s.note, tw).c_str());
+  } else {
+    Text(dl, F::Mono, px, ImVec2(tx, y), main, Ellipsize(F::Mono, px, s.line1, tw).c_str());
+    y += px * 1.55f;
+    Text(dl, F::Mono, sp, ImVec2(tx, y), soft, Ellipsize(F::Mono, sp, s.line2, tw).c_str());
+    y += sp * 1.6f;
+    Text(dl, F::Mono, sp, ImVec2(tx, y), dim, Ellipsize(F::Mono, sp, s.line3, tw).c_str());
+  }
+  // buttons
+  for (size_t i = 0; i < s.btns.size(); ++i) {
+    const Btn& k = s.btns[i];
+    bool dis = k.kind == BtnKind::Disabled;
+    ImVec2 a(bx, by + i * (bh + gap)), c(bx + bw, a.y + bh);
+    ImU32 bg = kBtnBg, br = kBtnBorder, tc = k.kind == BtnKind::Primary ? kWhite : kText;
+    if (dis) bg = IM_COL32(0x14, 0x14, 0x14, 255), br = IM_COL32(0x22, 0x22, 0x22, 255), tc = kLocked;
+    if (hov[i] && !dis) bg = br = kAccent, tc = kWhite;
+    dl->AddRectFilled(a, c, bg);
+    dl->AddRect(a, c, br, 0, 0, line);
+    ImVec2 ls = Measure(F::Mono, bpx, k.label.c_str());
+    Text(dl, F::Mono, bpx, ImVec2(a.x + (bw - ls.x) * 0.5f, std::floor(a.y + (bh - bpx) * 0.5f)), tc, k.label.c_str());
+    if (hov[i]) {
+      std::string d = k.desc;
+      if (dis && !k.why.empty()) d += (d.empty() ? "" : "\n") + std::string("Not now: ") + k.why + ".";
+      if (!d.empty()) SetHint(d);
+    }
+  }
+  if (r.hov && !anyBtnHov && !s.desc.empty()) SetHint(s.desc);
+  ImGui::SetCursorScreenPos(ImVec2(r.p.x, r.p.y + r.h));
+  ImGui::Dummy(ImVec2(0, 0));
+  ImGui::PopID();
+  return res;
+}
+
 void Space(float css) { ImGui::Dummy(ImVec2(1, P(css))); }
 
 bool AnyPopupOpen() { return ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel); }

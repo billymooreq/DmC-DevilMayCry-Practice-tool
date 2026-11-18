@@ -1,4 +1,4 @@
-DmC Practice Tool v{VERSION} (beta) - for DmC: Devil May Cry v1.3 and v1.0 (Steam; non-Steam copies of v1.3 work too)
+DmC Practice Tool v{VERSION} - for DmC: Devil May Cry v1.3 and v1.0 (Steam; non-Steam copies of v1.3 work too)
 
 How to install:
 1. In Steam: right-click DmC Devil May Cry > Manage > Browse local files.

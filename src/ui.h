@@ -130,6 +130,20 @@ void Section(const char* label);
 int KeyCell(const char* id, const char* label, const std::string& key, KeyState st, const std::string& desc,
             const std::string& keyDesc);
 bool Picture(const char* id, ImTextureID tex, float w, float h, const char* caption);  // true = clicked
+// #29 Save states tab: one slot (picture 160 x 90 css, texts, buttons stacked at the right). Returns the clicked
+// button (also a disabled one: the caller says why) or -1. A click on the row itself does nothing.
+struct SaveSlotSpec {
+  int number = 1;
+  std::string keys;         // "F5 load · Alt+F5 save"
+  ImTextureID thumb = 0;    // 0 = no picture
+  bool empty = true;
+  std::string line1, line2, line3, note;  // mission / place / time, HP, DT; note: an empty slot's grey line
+  bool locked = false;      // Speedrun mode: grey
+  std::string lockText;     // "[Speedrun mode]"
+  std::vector<Btn> btns;
+  std::string desc;         // hint for the row
+};
+int SaveSlot(const char* id, const SaveSlotSpec& s);
 void Space(float css);
 bool AnyPopupOpen();  // a dropdown is open (the menu must not react to the rows under it)
 

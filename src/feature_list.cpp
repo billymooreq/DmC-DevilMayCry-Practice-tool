@@ -571,6 +571,7 @@ class GameSpeed : public Feature {
 std::vector<Feature*> CreateNavFeatures();    // nav_features.cpp
 std::vector<Feature*> CreateEnemyFeatures();  // enemy_features.cpp
 std::vector<Feature*> CreateVisualFeatures();  // visual_features.cpp
+std::vector<Feature*> CreateSaveStateFeatures();  // savestate_features.cpp (#29)
 
 std::vector<Feature*> CreateAll() {
   // Menu order inside each group: most used first.
@@ -587,6 +588,7 @@ std::vector<Feature*> CreateAll() {
   for (Feature* f : inputdisp::CreateFeatures()) all.push_back(f);
   for (Feature* f : timers::CreateFeatures()) all.push_back(f);
   for (Feature* f : speedrun::CreateFeatures()) all.push_back(f);
+  for (Feature* f : CreateSaveStateFeatures()) all.push_back(f);
   return all;
 }
 

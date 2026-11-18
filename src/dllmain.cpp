@@ -8,6 +8,7 @@
 #include "input.h"
 #include "log.h"
 #include "state.h"
+#include "savestate.h"
 #include "steam_guard.h"
 #include "ue3/engine.h"
 #include "ue3/dumper.h"
@@ -34,6 +35,7 @@ static DWORD WINAPI InitThread(LPVOID) {
     LOG("d3d9: hook disabled in config (no menu/overlay)");
   // ProcessEvent hook = game-thread task queue for UFunction calls (no effect until something is queued).
   if (engine::InstallProcessEventHook()) engine::SetPeLog(g_cfg.peLog, g_cfg.peLogFilter);
+  savestate::Init();  // Dev > SAVESTATES: the game's main loop (dormant until turned on)
   // UE3 reflection is initialised in the background as soon as the game has loaded its names/objects:
   // the menu, the unlock checks and the PE log must not depend on a button that happens to scan first.
   ue3::StartAutoInit();
@@ -65,6 +67,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     DisableThreadLibraryCalls(inst);
     // Settings > Borderless window: the exe's imports must be redirected before its WinMain creates the device.
     winmode::InstallEarly();
+    // Dev > SAVESTATES (#25): thread names and the VirtualAlloc owner table must see the game from its start.
+    savestate::InstallEarly();
     // Nothing heavy under the loader lock: everything happens in the init thread.
     HANDLE t = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);
     if (t) CloseHandle(t);
